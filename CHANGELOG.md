@@ -1,5 +1,11 @@
 # scan-chart
 
+## 7.1.0
+
+### Minor Changes
+
+- 4f2cdb8: Include lyrics information
+
 ## 7.0.1
 
 ### Patch Changes

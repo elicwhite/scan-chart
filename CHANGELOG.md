@@ -1,5 +1,11 @@
 # scan-chart
 
+## 7.2.1
+
+### Patch Changes
+
+- Handle missing phrase end markers by implicitly closing phrases when a new phrase start is encountered
+
 ## 7.2.0
 
 ### Minor Changes

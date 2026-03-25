@@ -56,6 +56,8 @@ interface InputHashes {
 			difficulty: Difficulty
 			trackHash: string
 		}[]
+		lyrics: { msTime: number; text: string }[]
+		vocalPhrases: { msTime: number; msLength: number }[]
 	}
 }
 
@@ -95,6 +97,8 @@ async function main() {
 					difficulty: t.difficulty,
 					trackHash: t.hash,
 				})),
+				lyrics: result.notesData.lyrics.map(l => ({ msTime: l.msTime, text: l.text })),
+				vocalPhrases: result.notesData.vocalPhrases.map(p => ({ msTime: p.msTime, msLength: p.msLength })),
 			}
 			if (config.createBChartFiles) {
 				for (const trackHash of result.notesData.trackHashes) {

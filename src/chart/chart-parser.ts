@@ -467,31 +467,27 @@ function getChartVocalPhrases(eventLines: string[]): { tick: number; length: num
 	const phraseStartRegex = /^(\d+) = E "phrase_start"$/
 	const phraseEndRegex = /^(\d+) = E "phrase_end"$/
 
-	const starts: number[] = []
-	const ends: number[] = []
+	const phrases: { tick: number; length: number }[] = []
+	let currentStart: number | null = null
 
 	for (const line of eventLines) {
 		const startMatch = phraseStartRegex.exec(line)
 		if (startMatch) {
-			starts.push(Number(startMatch[1]))
+			const tick = Number(startMatch[1])
+			// If there's already an open phrase, close it at this tick
+			if (currentStart !== null) {
+				phrases.push({ tick: currentStart, length: tick - currentStart })
+			}
+			currentStart = tick
 			continue
 		}
 		const endMatch = phraseEndRegex.exec(line)
 		if (endMatch) {
-			ends.push(Number(endMatch[1]))
-		}
-	}
-
-	// Pair each phrase_start with the next phrase_end
-	const phrases: { tick: number; length: number }[] = []
-	let endIdx = 0
-	for (const start of starts) {
-		while (endIdx < ends.length && ends[endIdx] <= start) {
-			endIdx++
-		}
-		if (endIdx < ends.length) {
-			phrases.push({ tick: start, length: ends[endIdx] - start })
-			endIdx++
+			if (currentStart !== null) {
+				const endTick = Number(endMatch[1])
+				phrases.push({ tick: currentStart, length: endTick - currentStart })
+				currentStart = null
+			}
 		}
 	}
 

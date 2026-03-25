@@ -723,6 +723,11 @@ function getVocalPhrases(trackEvents: MidiEvent[]): { tick: number; length: numb
 	for (const event of trackEvents) {
 		if (event.type === 'noteOn' && (event.noteNumber === 105 || event.noteNumber === 106)) {
 			if (event.velocity > 0) {
+				// If there's already an open phrase for this note, close it at this tick
+				const existingStart = phraseStarts.get(event.noteNumber)
+				if (existingStart !== undefined) {
+					phrases.push({ tick: existingStart, length: event.deltaTime - existingStart })
+				}
 				phraseStarts.set(event.noteNumber, event.deltaTime)
 			} else {
 				// velocity 0 noteOn = noteOff

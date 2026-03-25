@@ -1,5 +1,11 @@
 # scan-chart
 
+## 7.2.0
+
+### Minor Changes
+
+- d9b1c81: Add vocalPhrases to extract lyric line boundaries
+
 ## 7.1.0
 
 ### Minor Changes

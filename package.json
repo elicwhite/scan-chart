@@ -1,6 +1,6 @@
 {
 	"name": "@eliwhite/scan-chart",
-	"version": "7.1.0",
+	"version": "7.2.0",
 	"author": "Geo",
 	"license": "MIT",
 	"main": "dist/index.js",

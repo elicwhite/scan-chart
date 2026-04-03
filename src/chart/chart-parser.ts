@@ -348,6 +348,8 @@ function getEventType(typeCode: string, value: string, instrument: Instrument, d
 							return eventTypes.fiveGreenDrum
 						case '32':
 							return eventTypes.kick2x
+						case '33':
+							return eventTypes.kickAccent
 						case '34':
 							return eventTypes.redAccent
 						case '35':
@@ -358,6 +360,8 @@ function getEventType(typeCode: string, value: string, instrument: Instrument, d
 							return eventTypes.fiveOrangeFourGreenAccent
 						case '38':
 							return eventTypes.fiveGreenAccent
+						case '39':
+							return eventTypes.kickGhost
 						case '40':
 							return eventTypes.redGhost
 						case '41':
@@ -374,6 +378,8 @@ function getEventType(typeCode: string, value: string, instrument: Instrument, d
 							return eventTypes.blueCymbalMarker
 						case '68':
 							return eventTypes.greenCymbalMarker
+						case '109':
+							return eventTypes.forceFlam
 						default:
 							return null
 					}

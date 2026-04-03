@@ -457,7 +457,7 @@ function mergeSoloEvents(events: { tick: number; type: EventType; length: number
 			const lastSoloSectionStartEvent = soloSectionStartEvents.pop()
 			if (lastSoloSectionStartEvent) {
 				lastSoloSectionStartEvent.type = eventTypes.soloSection
-				lastSoloSectionStartEvent.length = event.tick - lastSoloSectionStartEvent.tick + 1
+				lastSoloSectionStartEvent.length = event.tick - lastSoloSectionStartEvent.tick
 			}
 		}
 	}

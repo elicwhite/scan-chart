@@ -59,6 +59,8 @@ export interface RawChartData {
 		tick: number
 		/** Number of ticks */
 		length: number
+		/** MIDI note number (105 or 106). Only present for MIDI-sourced phrases. */
+		noteNumber?: number
 	}[]
 	tempos: {
 		tick: number

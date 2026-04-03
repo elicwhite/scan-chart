@@ -805,9 +805,9 @@ function fixFlexLaneLds(events: { [key in Difficulty]: MidiTrackEvent[] }) {
  * Extracts vocal phrase boundaries from MIDI notes 105 and 106 on the PART VOCALS track.
  * These notes define phrase regions as note-on/note-off pairs.
  */
-function getVocalPhrases(trackEvents: MidiEvent[]): { tick: number; length: number }[] {
+function getVocalPhrases(trackEvents: MidiEvent[]): { tick: number; length: number; noteNumber: number }[] {
 	const phraseStarts: Map<number, number> = new Map() // noteNumber -> startTick
-	const phrases: { tick: number; length: number }[] = []
+	const phrases: { tick: number; length: number; noteNumber: number }[] = []
 
 	for (const event of trackEvents) {
 		if (event.type === 'noteOn' && (event.noteNumber === 105 || event.noteNumber === 106)) {
@@ -815,21 +815,21 @@ function getVocalPhrases(trackEvents: MidiEvent[]): { tick: number; length: numb
 				// If there's already an open phrase for this note, close it at this tick
 				const existingStart = phraseStarts.get(event.noteNumber)
 				if (existingStart !== undefined) {
-					phrases.push({ tick: existingStart, length: event.deltaTime - existingStart })
+					phrases.push({ tick: existingStart, length: event.deltaTime - existingStart, noteNumber: event.noteNumber })
 				}
 				phraseStarts.set(event.noteNumber, event.deltaTime)
 			} else {
 				// velocity 0 noteOn = noteOff
 				const startTick = phraseStarts.get(event.noteNumber)
 				if (startTick !== undefined) {
-					phrases.push({ tick: startTick, length: event.deltaTime - startTick })
+					phrases.push({ tick: startTick, length: event.deltaTime - startTick, noteNumber: event.noteNumber })
 					phraseStarts.delete(event.noteNumber)
 				}
 			}
 		} else if (event.type === 'noteOff' && (event.noteNumber === 105 || event.noteNumber === 106)) {
 			const startTick = phraseStarts.get(event.noteNumber)
 			if (startTick !== undefined) {
-				phrases.push({ tick: startTick, length: event.deltaTime - startTick })
+				phrases.push({ tick: startTick, length: event.deltaTime - startTick, noteNumber: event.noteNumber })
 				phraseStarts.delete(event.noteNumber)
 			}
 		}

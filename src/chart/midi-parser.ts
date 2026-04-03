@@ -300,7 +300,7 @@ function getTrackEventEnds(events: MidiEvent[], instrumentType: InstrumentType) 
 				: 'all'
 			if (difficulty === 'all') {
 				// Instrument-wide event (solo marker, star power, etc...) (applies to all difficulties)
-				const type = getInstrumentEventType(event.noteNumber)
+				const type = getInstrumentEventType(event.noteNumber, instrumentType)
 				if (type !== null) {
 					trackEventEnds[difficulty].push({
 						tick: event.deltaTime,
@@ -358,19 +358,23 @@ function getTrackEventEnds(events: MidiEvent[], instrumentType: InstrumentType) 
 }
 
 /** These apply to the entire instrument, not specific difficulties. */
-function getInstrumentEventType(note: number) {
+function getInstrumentEventType(note: number, instrumentType: InstrumentType) {
 	switch (note) {
 		case 103:
 			return eventTypes.soloSection
 		case 104:
 			return eventTypes.forceTap
 		case 109:
+			if (instrumentType !== instrumentTypes.drums) return null
 			return eventTypes.forceFlam
 		case 110:
+			if (instrumentType !== instrumentTypes.drums) return null
 			return eventTypes.yellowTomMarker
 		case 111:
+			if (instrumentType !== instrumentTypes.drums) return null
 			return eventTypes.blueTomMarker
 		case 112:
+			if (instrumentType !== instrumentTypes.drums) return null
 			return eventTypes.greenTomMarker
 		case 116:
 			return eventTypes.starPower

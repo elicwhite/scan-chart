@@ -244,6 +244,7 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 			.filter(track => track.trackEvents.length > 0)
 			.map(track => {
 				track.trackEvents = dedupByTickType(track.trackEvents)
+				track.trackEvents = removeOrphanedAccentGhost(track.trackEvents)
 				track.starPowerSections = dedupByTickLen(track.starPowerSections)
 				track.soloSections = dedupByTickLen(track.soloSections)
 				track.drumFreestyleSections = dedupByTickLen(track.drumFreestyleSections)
@@ -270,6 +271,41 @@ function dedupByTickLen<T extends { tick: number; length?: number }>(arr: T[]): 
 		const key = `${e.tick}:${e.length || 0}`
 		if (seen.has(key)) return false
 		seen.add(key)
+		return true
+	})
+}
+
+/**
+ * Remove accent/ghost modifier events that don't have a matching base note at the same tick.
+ * splitMidiModifierSustains() can produce these when modifier sustains overlap ticks
+ * that don't have a corresponding base note.
+ */
+function removeOrphanedAccentGhost(trackEvents: { tick: number; type: EventType; length: number }[]) {
+	const accentGhostToBase: Partial<Record<EventType, EventType>> = {
+		[eventTypes.kickAccent]: eventTypes.kick,
+		[eventTypes.kickGhost]: eventTypes.kick,
+		[eventTypes.redAccent]: eventTypes.redDrum,
+		[eventTypes.redGhost]: eventTypes.redDrum,
+		[eventTypes.yellowAccent]: eventTypes.yellowDrum,
+		[eventTypes.yellowGhost]: eventTypes.yellowDrum,
+		[eventTypes.blueAccent]: eventTypes.blueDrum,
+		[eventTypes.blueGhost]: eventTypes.blueDrum,
+		[eventTypes.fiveOrangeFourGreenAccent]: eventTypes.fiveOrangeFourGreenDrum,
+		[eventTypes.fiveOrangeFourGreenGhost]: eventTypes.fiveOrangeFourGreenDrum,
+		[eventTypes.fiveGreenAccent]: eventTypes.fiveGreenDrum,
+		[eventTypes.fiveGreenGhost]: eventTypes.fiveGreenDrum,
+	}
+
+	const baseNotes = new Set<string>()
+	for (const ev of trackEvents) {
+		if (accentGhostToBase[ev.type] === undefined) {
+			baseNotes.add(`${ev.tick}:${ev.type}`)
+		}
+	}
+
+	return trackEvents.filter(ev => {
+		const base = accentGhostToBase[ev.type]
+		if (base !== undefined) return baseNotes.has(`${ev.tick}:${base}`)
 		return true
 	})
 }

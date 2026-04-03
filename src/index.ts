@@ -12,6 +12,8 @@ import { scanVideo } from './video'
 export * from './interfaces'
 export * from './chart/note-parsing-interfaces'
 export { parseChartFile } from './chart/notes-parser'
+export { parseNotesFromChart } from './chart/chart-parser'
+export { parseNotesFromMidi } from './chart/midi-parser'
 export { calculateTrackHash } from './chart/track-hasher'
 
 /**

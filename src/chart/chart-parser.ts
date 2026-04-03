@@ -190,7 +190,7 @@ export function parseNotesFromChart(data: Uint8Array): RawChartData {
 			.map(([trackName, lines]) => {
 				const { instrument, difficulty } = trackNameMap[trackName as TrackName]
 				const trackEvents = _.chain(lines)
-					.map(line => /^(\d+) = ([A-Z]+) ([\w\s[\]]+?)( \d+)?$/.exec(line))
+					.map(line => /^(\d+) = ([A-Z]+) ([\w\s[\]"]+?)( \d+)?$/.exec(line))
 					.compact()
 					.map(([, tickString, typeCode, value, lengthString]) => {
 						const type = getEventType(typeCode, value, instrument, difficulty)
@@ -292,6 +292,7 @@ function getFileSections(chartText: string) {
 }
 
 function getEventType(typeCode: string, value: string, instrument: Instrument, difficulty: Difficulty): EventType | null {
+	value = value.replace(/"/g, '')
 	switch (typeCode) {
 		case 'E': {
 			switch (value) {

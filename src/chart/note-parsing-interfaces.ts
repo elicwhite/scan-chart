@@ -10,6 +10,7 @@ export interface IniChartModifiers {
 	chord_snap_threshold: number
 	five_lane_drums: boolean
 	pro_drums: boolean
+	delay?: number
 }
 
 export const defaultIniChartModifiers = {

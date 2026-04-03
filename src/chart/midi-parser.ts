@@ -99,7 +99,11 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 
 	return {
 		chartTicksPerBeat: midiFile.header.ticksPerBeat,
-		metadata: {}, // .mid does not have a mechanism for storing song metadata
+		metadata: {
+			// .mid files don't store song metadata, but delay comes from song.ini
+			// via iniChartModifiers. Propagate it so consumers can align chart with audio.
+			delay: iniChartModifiers.delay || undefined,
+		},
 		hasLyrics: !!vocalsTrack?.trackEvents.find(e => e.type === 'lyrics' || e.type === 'text'),
 		hasVocals: !!vocalsTrack?.trackEvents.find(e => e.type === 'noteOn' && e.noteNumber <= 84 && e.noteNumber >= 36),
 		lyrics: _.chain(vocalsTrack?.trackEvents)

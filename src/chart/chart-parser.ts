@@ -170,11 +170,11 @@ export function parseNotesFromChart(data: Uint8Array): RawChartData {
 			})
 			.value(),
 		sections: _.chain(fileSections['Events'])
-			.map(line => /^(\d+) = E "\[?(?:section|prc)[ _](.*?)\]?"$/.exec(line))
+			.map(line => /^(\d+) = E "(\[)?(?:section|prc)[ _](.*)"$/.exec(line))
 			.compact()
-			.map(([, stringTick, stringName]) => ({
+			.map(([, stringTick, hadBracket, stringName]) => ({
 				tick: Number(stringTick),
-				name: stringName,
+				name: hadBracket ? stringName.replace(/\]$/, '') : stringName,
 			}))
 			.value(),
 		endEvents: _.chain(fileSections['Events'])

@@ -172,6 +172,7 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 			.value(),
 		trackData: _.chain(tracks)
 			.filter(t => _.keys(instrumentNameMap).includes(t.trackName))
+			.uniqBy('trackName')
 			.map(t => {
 				const instrument = instrumentNameMap[t.trackName as InstrumentTrackName]
 				const instrumentType = getInstrumentType(instrument)

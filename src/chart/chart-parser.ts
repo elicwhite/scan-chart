@@ -236,10 +236,36 @@ export function parseNotesFromChart(data: Uint8Array): RawChartData {
 					}
 				}
 
+				result.trackEvents = dedupByTickType(result.trackEvents)
+				result.starPowerSections = dedupByTickLen(result.starPowerSections)
+				result.soloSections = dedupByTickLen(result.soloSections)
+				result.drumFreestyleSections = dedupByTickLen(result.drumFreestyleSections)
+				result.flexLanes = dedupByTickLen(result.flexLanes)
+
 				return result
 			})
 			.value(),
 	}
+}
+
+function dedupByTickType<T extends { tick: number; type: unknown }>(arr: T[]): T[] {
+	const seen = new Set<string>()
+	return arr.filter(e => {
+		const key = `${e.tick}:${e.type}`
+		if (seen.has(key)) return false
+		seen.add(key)
+		return true
+	})
+}
+
+function dedupByTickLen<T extends { tick: number; length?: number }>(arr: T[]): T[] {
+	const seen = new Set<string>()
+	return arr.filter(e => {
+		const key = `${e.tick}:${e.length || 0}`
+		if (seen.has(key)) return false
+		seen.add(key)
+		return true
+	})
 }
 
 function getFileSections(chartText: string) {

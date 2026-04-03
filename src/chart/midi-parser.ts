@@ -242,8 +242,36 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 			})
 			.flatMap()
 			.filter(track => track.trackEvents.length > 0)
+			.map(track => {
+				track.trackEvents = dedupByTickType(track.trackEvents)
+				track.starPowerSections = dedupByTickLen(track.starPowerSections)
+				track.soloSections = dedupByTickLen(track.soloSections)
+				track.drumFreestyleSections = dedupByTickLen(track.drumFreestyleSections)
+				track.flexLanes = dedupByTickLen(track.flexLanes)
+				return track
+			})
 			.value(),
 	}
+}
+
+function dedupByTickType<T extends { tick: number; type: unknown }>(arr: T[]): T[] {
+	const seen = new Set<string>()
+	return arr.filter(e => {
+		const key = `${e.tick}:${e.type}`
+		if (seen.has(key)) return false
+		seen.add(key)
+		return true
+	})
+}
+
+function dedupByTickLen<T extends { tick: number; length?: number }>(arr: T[]): T[] {
+	const seen = new Set<string>()
+	return arr.filter(e => {
+		const key = `${e.tick}:${e.length || 0}`
+		if (seen.has(key)) return false
+		seen.add(key)
+		return true
+	})
 }
 
 function convertToAbsoluteTime(midiData: MidiData) {

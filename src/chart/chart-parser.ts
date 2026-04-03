@@ -208,6 +208,7 @@ export function parseNotesFromChart(data: Uint8Array): RawChartData {
 					soloSections: [],
 					flexLanes: [],
 					drumFreestyleSections: [],
+					modifierSustains: [],
 					trackEvents: [],
 				}
 

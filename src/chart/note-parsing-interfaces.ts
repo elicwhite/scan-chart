@@ -109,6 +109,17 @@ export interface RawChartData {
 			/** If the freestyle section is a big rock ending instead of an activation lane */
 			isCoda: boolean
 		}[]
+		/**
+		 * Original modifier sustain ranges from MIDI (before splitting into per-note events).
+		 * Only populated for MIDI-sourced charts. Empty for .chart files.
+		 * Contains forceTap, forceOpen, forceHopo, forceStrum (guitar) or
+		 * forceFlam, tomMarkers (drums) with their original sustain lengths.
+		 */
+		modifierSustains: {
+			tick: number
+			length: number
+			type: EventType
+		}[]
 		/** Only contains notes and note modifiers. */
 		trackEvents: {
 			tick: number

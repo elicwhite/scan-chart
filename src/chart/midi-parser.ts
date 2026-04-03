@@ -175,10 +175,25 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 			.map(t => {
 				const instrument = instrumentNameMap[t.trackName as InstrumentTrackName]
 				const instrumentType = getInstrumentType(instrument)
-				const trackDifficulties = _.chain(t.trackEvents)
+				// Extract modifier sustains before splitMidiModifierSustains() destroys them
+				const preSplit = _.chain(t.trackEvents)
 					.thru(trackEvents => getTrackEventEnds(trackEvents, instrumentType))
 					.thru(eventEnds => distributeInstrumentEvents(eventEnds)) // Removes 'all' difficulty
 					.thru(eventEnds => getTrackEvents(eventEnds)) // Connects note ends together
+					.value()
+
+				const modSustainTypes: EventType[] =
+					instrumentType === instrumentTypes.drums ?
+						[eventTypes.forceFlam, eventTypes.yellowTomMarker, eventTypes.blueTomMarker, eventTypes.greenTomMarker]
+					:	[eventTypes.forceOpen, eventTypes.forceTap, eventTypes.forceStrum, eventTypes.forceHopo]
+				const modSustainsByDiff: { [key in Difficulty]?: { tick: number; length: number; type: EventType }[] } = {}
+				for (const d of difficulties) {
+					modSustainsByDiff[d] = preSplit[d]
+						.filter(e => modSustainTypes.includes(e.type))
+						.map(e => ({ tick: e.tick, length: e.length, type: e.type }))
+				}
+
+				const trackDifficulties = _.chain(preSplit)
 					.thru(events => splitMidiModifierSustains(events, instrumentType))
 					.thru(events => fixLegacyGhStarPower(events, instrumentType, iniChartModifiers))
 					.thru(events => fixFlexLaneLds(events))
@@ -193,6 +208,7 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 						soloSections: [],
 						flexLanes: [],
 						drumFreestyleSections: [],
+						modifierSustains: modSustainsByDiff[difficulty] ?? [],
 						trackEvents: [],
 					}
 

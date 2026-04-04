@@ -151,6 +151,29 @@ export interface RawChartData {
 	chartTrackSections?: Record<string, string[]>
 
 	/**
+	 * Original MIDI track name ordering (including track 0).
+	 * Used by the MIDI writer to preserve track order for byte-level roundtrip.
+	 * Only populated when parsing .mid files.
+	 */
+	midiTrackOrder?: string[]
+
+	/**
+	 * Raw MIDI tempo track (track 0) events in delta-time format.
+	 * Preserved verbatim so the MIDI writer can emit the original tempo track
+	 * with its original event ordering. Only populated when parsing .mid files.
+	 */
+	midiTempoTrack?: MidiEvent[]
+
+	/**
+	 * Raw MIDI instrument track events in delta-time format, keyed by track name.
+	 * Preserved so the MIDI writer can emit complete tracks (including events
+	 * scan-chart doesn't model like animations, practice markers, etc.) for
+	 * byte-level roundtrip fidelity. Only populated when parsing .mid files.
+	 * Cleared when track data is edited to prevent stale passthrough.
+	 */
+	midiInstrumentTracks?: Record<string, MidiEvent[]>
+
+	/**
 	 * MIDI tracks whose names aren't recognized by the parser.
 	 * Preserved verbatim so the MIDI writer can emit them for roundtrip fidelity.
 	 * Only populated when parsing .mid files.

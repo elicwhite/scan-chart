@@ -85,6 +85,23 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 		throw 'Invalid .mid file: no tracks detected'
 	}
 
+	// Preserve raw tempo track (track 0) before absolute time conversion
+	const midiTempoTrack = midiFile.tracks[0]?.map(e => ({ ...e }))
+
+	// Capture original track ordering and raw instrument track data before conversion
+	const midiTrackOrder: string[] = []
+	const midiInstrumentTracks: Record<string, MidiEvent[]> = {}
+	for (const track of midiFile.tracks) {
+		const nameEvt = track.find(e => e.deltaTime === 0 && e.type === 'trackName')
+		const name = nameEvt ? (nameEvt as any).text : ''
+		midiTrackOrder.push(name)
+		// Save raw delta-time events for known instrument tracks, EVENTS, and PART VOCALS
+		if (name && name !== midiTrackOrder[0]) {
+			// Already in delta-time format (before convertToAbsoluteTime)
+			midiInstrumentTracks[name] = track.map(e => ({ ...e }))
+		}
+	}
+
 	// Sets event.deltaTime to the number of ticks since the start of the track
 	convertToAbsoluteTime(midiFile)
 
@@ -224,6 +241,16 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 			.flatMap()
 			.filter(track => track.trackEvents.length > 0)
 			.value(),
+		midiTrackOrder,
+		midiTempoTrack,
+		midiInstrumentTracks: Object.keys(midiInstrumentTracks).length > 0 ? midiInstrumentTracks : undefined,
+		unknownMidiTracks:
+			unknownTracks.length > 0
+				? unknownTracks.map(t => ({
+						name: t.name,
+						events: convertToDeltaTime(t.events),
+					}))
+				: undefined,
 	}
 }
 

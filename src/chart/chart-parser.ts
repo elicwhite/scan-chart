@@ -110,10 +110,10 @@ export function parseNotesFromChart(data: Uint8Array): RawChartData {
 	const chartEventsSection = fileSections['Events'] ?? undefined
 	const chartSyncTrackSection = fileSections['SyncTrack'] ?? undefined
 
-	// Capture raw track section lines for roundtrip fidelity
+	// Capture raw track section lines for roundtrip fidelity (in file order)
 	const chartTrackSections: Record<string, string[]> = {}
-	for (const sectionName of _.keys(trackNameMap)) {
-		if (fileSections[sectionName]) {
+	for (const sectionName of _.keys(fileSections)) {
+		if (sectionName in trackNameMap) {
 			chartTrackSections[sectionName] = fileSections[sectionName]
 		}
 	}

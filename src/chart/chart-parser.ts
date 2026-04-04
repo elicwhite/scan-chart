@@ -85,7 +85,7 @@ export function parseNotesFromChart(data: Uint8Array): RawChartData {
 	const lineEnding: '\r\n' | '\n' = chartText.includes('\r\n') ? '\r\n' : '\n'
 	const hasTrailingNewline = chartText.endsWith('\n')
 
-	const fileSections = getFileSections(chartText)
+	const { sections: fileSections, rawSections } = getFileSections(chartText)
 	if (_.values(fileSections).length === 0) {
 		throw 'Invalid .chart file: no sections were found.'
 	}
@@ -106,16 +106,18 @@ export function parseNotesFromChart(data: Uint8Array): RawChartData {
 					.map(([, key, value]) => ({ key: key.trim(), value: value.trim() }))
 					.value()
 			: undefined
+	// Raw [Song] lines with original indentation for byte-level writer fidelity
+	const chartSongLines = rawSections['Song'] ?? undefined
 
-	// Capture raw [Events] and [SyncTrack] lines for roundtrip fidelity
-	const chartEventsSection = fileSections['Events'] ?? undefined
-	const chartSyncTrackSection = fileSections['SyncTrack'] ?? undefined
+	// Capture raw section lines (with original indentation) for roundtrip fidelity
+	const chartEventsSection = rawSections['Events'] ?? undefined
+	const chartSyncTrackSection = rawSections['SyncTrack'] ?? undefined
 
 	// Capture raw track section lines for roundtrip fidelity (in file order)
 	const chartTrackSections: Record<string, string[]> = {}
 	for (const sectionName of _.keys(fileSections)) {
 		if (sectionName in trackNameMap) {
-			chartTrackSections[sectionName] = fileSections[sectionName]
+			chartTrackSections[sectionName] = rawSections[sectionName]
 		}
 	}
 
@@ -124,7 +126,7 @@ export function parseNotesFromChart(data: Uint8Array): RawChartData {
 	const unknownChartSections: Array<{ name: string; lines: string[] }> = []
 	for (const sectionName of _.keys(fileSections)) {
 		if (!knownSections.has(sectionName)) {
-			unknownChartSections.push({ name: sectionName, lines: fileSections[sectionName] })
+			unknownChartSections.push({ name: sectionName, lines: rawSections[sectionName] })
 		}
 	}
 
@@ -278,6 +280,7 @@ export function parseNotesFromChart(data: Uint8Array): RawChartData {
 			})
 			.value(),
 		chartSongSection: chartSongSection && chartSongSection.length > 0 ? chartSongSection : undefined,
+		chartSongLines: chartSongLines && chartSongLines.length > 0 ? chartSongLines : undefined,
 		chartEventsSection: chartEventsSection && chartEventsSection.length > 0 ? chartEventsSection : undefined,
 		chartSyncTrackSection: chartSyncTrackSection && chartSyncTrackSection.length > 0 ? chartSyncTrackSection : undefined,
 		chartTrackSections: Object.keys(chartTrackSections).length > 0 ? chartTrackSections : undefined,
@@ -287,6 +290,8 @@ export function parseNotesFromChart(data: Uint8Array): RawChartData {
 
 function getFileSections(chartText: string) {
 	const sections: { [sectionName: string]: string[] } = {}
+	// Raw sections preserve original whitespace for byte-level roundtrip fidelity
+	const rawSections: { [sectionName: string]: string[] } = {}
 	let skipLine = false
 	let readStartIndex = 0
 	let readingSection = false
@@ -320,20 +325,21 @@ function getFileSections(chartText: string) {
 			if (!thisSection) {
 				throw `Invalid .chart file: end of section reached before a section name was found at index ${i}`
 			}
-			// Strip \r and leading whitespace, but preserve trailing whitespace
-			// for byte-level roundtrip fidelity
-			sections[thisSection] = chartText
+			const rawLines = chartText
 				.slice(readStartIndex, i)
 				.split('\n')
-				.map(line => line.replace(/\r$/, '').trimStart())
-				.filter(line => line.length)
+				.map(line => line.replace(/\r$/, ''))
+				.filter(line => line.trim().length)
+			rawSections[thisSection] = rawLines
+			// Trimmed version for structured parsing
+			sections[thisSection] = rawLines.map(line => line.trim())
 		} else if (chartText[i] === '[') {
 			readStartIndex = i + 1
 			readingSection = true
 		}
 	}
 
-	return sections
+	return { sections, rawSections }
 }
 
 function getEventType(typeCode: string, value: string, instrument: Instrument, difficulty: Difficulty): EventType | null {

@@ -128,6 +128,8 @@ export interface RawChartData {
 	 * Only populated when parsing .chart files.
 	 */
 	chartSongSection?: Array<{ key: string; value: string }>
+	/** Raw lines from the .chart [Song] section with original indentation. */
+	chartSongLines?: string[]
 
 	/**
 	 * Raw lines from the .chart [Events] section, preserving original event

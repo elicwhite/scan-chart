@@ -88,7 +88,7 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 	// Sets event.deltaTime to the number of ticks since the start of the track
 	convertToAbsoluteTime(midiFile)
 
-	const tracks = getTracks(midiFile)
+	const { tracks, unknownTracks } = getTracks(midiFile)
 
 	const vocalsTrack = tracks.find(t => t.trackName === 'PART VOCALS')
 	const codaEvents =
@@ -252,6 +252,13 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 				return track
 			})
 			.value(),
+		unknownMidiTracks:
+			unknownTracks.length > 0
+				? unknownTracks.map(t => ({
+						name: t.name,
+						events: convertToDeltaTime(t.events),
+					}))
+				: undefined,
 	}
 }
 
@@ -320,29 +327,54 @@ function convertToAbsoluteTime(midiData: MidiData) {
 	}
 }
 
+/** Convert absolute-time events back to delta-time for storage/writing. */
+function convertToDeltaTime(events: MidiEvent[]): MidiEvent[] {
+	let prevTick = 0
+	return events.map(event => {
+		const delta = event.deltaTime - prevTick
+		prevTick = event.deltaTime
+		// Strip `running` — it's a parser artifact from midi-file indicating
+		// MIDI running status was used. writeMidi applies its own running status
+		// optimization, so preserving this flag causes mismatches on re-parse.
+		const { running: _, ...rest } = event as MidiEvent & { running?: boolean }
+		return { ...rest, deltaTime: delta }
+	})
+}
+
 function getTracks(midiData: MidiData) {
 	const tracks: { trackName: TrackName; trackEvents: MidiEvent[] }[] = []
+	const unknownTracks: { name: string; events: MidiEvent[] }[] = []
 
-	for (const track of midiData.tracks) {
+	for (let i = 0; i < midiData.tracks.length; i++) {
+		const track = midiData.tracks[i]
+
+		// Skip track 0 — it's the tempo map track, read directly by index
+		// for tempos and time signatures. The MIDI writer reconstructs it.
+		if (i === 0) continue
+
 		let trackName: string | null = null
 		for (const event of track) {
 			if (event.deltaTime !== 0) {
 				break
 			}
-			if (event.type === 'trackName' && trackNames.includes(event.text as TrackName)) {
+			if (event.type === 'trackName') {
 				trackName = event.text
 			}
 		}
 
 		if (trackName !== null) {
-			tracks.push({
-				trackName: trackName as TrackName,
-				trackEvents: track,
-			})
+			if (trackNames.includes(trackName as TrackName)) {
+				tracks.push({
+					trackName: trackName as TrackName,
+					trackEvents: track,
+				})
+			} else {
+				unknownTracks.push({ name: trackName, events: track })
+			}
 		}
 	}
 
-	return tracks
+	return { tracks, unknownTracks }
 }
 
 /** Gets the starting and ending notes for all midi events defined for the .mid chart spec. */

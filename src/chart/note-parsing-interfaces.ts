@@ -1,5 +1,6 @@
 import { Difficulty, Instrument } from 'src/interfaces'
 import { ObjectValues } from 'src/utils'
+import type { MidiEvent } from 'midi-file'
 
 export interface IniChartModifiers {
 	song_length: number
@@ -24,6 +25,81 @@ export const defaultIniChartModifiers = {
 	pro_drums: false,
 }
 
+// ---------------------------------------------------------------------------
+// ChartMetadata — full song.ini field set
+// ---------------------------------------------------------------------------
+
+/** Full song.ini field set. All fields optional. */
+export interface ChartMetadata {
+	name?: string
+	artist?: string
+	album?: string
+	genre?: string
+	year?: string
+	charter?: string
+	song_length?: number
+	diff_band?: number
+	diff_guitar?: number
+	diff_guitar_coop?: number
+	diff_rhythm?: number
+	diff_bass?: number
+	diff_drums?: number
+	diff_drums_real?: number
+	diff_keys?: number
+	diff_guitarghl?: number
+	diff_guitar_coop_ghl?: number
+	diff_rhythm_ghl?: number
+	diff_bassghl?: number
+	diff_vocals?: number
+	preview_start_time?: number
+	icon?: string
+	loading_phrase?: string
+	album_track?: number
+	playlist_track?: number
+	modchart?: boolean
+	delay?: number
+	hopo_frequency?: number
+	eighthnote_hopo?: boolean
+	multiplier_note?: number
+	sustain_cutoff_threshold?: number
+	chord_snap_threshold?: number
+	video_start_time?: number
+	five_lane_drums?: boolean
+	pro_drums?: boolean
+	end_events?: boolean
+	/**
+	 * Preserves any song.ini fields not explicitly modeled in ChartMetadata.
+	 * Written verbatim after known fields during INI serialization to prevent
+	 * data loss on round-trip (e.g. sysex_slider, sysex_open_bass, diff_bass_real).
+	 */
+	extraIniFields?: Record<string, string>
+}
+
+// ---------------------------------------------------------------------------
+// FileEntry
+// ---------------------------------------------------------------------------
+
+/** A file with its name and binary data. */
+export interface FileEntry {
+	fileName: string
+	data: Uint8Array
+}
+
+// ---------------------------------------------------------------------------
+// ChartDocument
+// ---------------------------------------------------------------------------
+
+/**
+ * Extends RawChartData with fields needed for write-back and metadata.
+ * RawChartData.metadata is ChartMetadata, so no Omit needed.
+ */
+export interface ChartDocument extends RawChartData {
+	/** Original file format — determines write-back format. */
+	originalFormat: 'chart' | 'mid'
+	/** Pass-through files not managed by the library (audio, album art, video). */
+	assets: FileEntry[]
+}
+
 /**
  * This is the common format that both .mid and .chart parsers target, and is used by `parseChart()` to generate `ChartData`.
  *
@@ -36,17 +112,7 @@ export const defaultIniChartModifiers = {
  */
 export interface RawChartData {
 	chartTicksPerBeat: number
-	metadata: {
-		name?: string
-		artist?: string
-		album?: string
-		genre?: string
-		year?: string
-		charter?: string
-		diff_guitar?: number
-		delay?: number
-		preview_start_time?: number
-	}
+	metadata: ChartMetadata
 	hasLyrics: boolean
 	hasVocals: boolean
 	lyrics: {
@@ -134,6 +200,28 @@ export interface RawChartData {
 			type: EventType
 		}[]
 	}[]
+
+	/**
+	 * Raw key-value pairs from the .chart [Song] section, preserving original
+	 * field order and unknown fields (Player2, MediaType, etc.) that aren't
+	 * parsed into metadata. Used by the .chart writer for roundtrip fidelity.
+	 * Only populated when parsing .chart files.
+	 */
+	chartSongSection?: Array<{ key: string; value: string }>
+
+	/**
+	 * MIDI tracks whose names aren't recognized by the parser.
+	 * Preserved verbatim so the MIDI writer can emit them for roundtrip fidelity.
+	 * Only populated when parsing .mid files.
+	 */
+	unknownMidiTracks?: Array<{ name: string; events: MidiEvent[] }>
+
+	/**
+	 * .chart track sections whose names aren't recognized by the parser.
+	 * Preserved verbatim so the .chart writer can emit them for roundtrip fidelity.
+	 * Only populated when parsing .chart files.
+	 */
+	unknownChartSections?: Array<{ name: string; lines: string[] }>
 }
 
 export type EventType = ObjectValues<typeof eventTypes>

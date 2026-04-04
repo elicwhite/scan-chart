@@ -15,6 +15,7 @@ export { parseChartFile } from './chart/notes-parser'
 export { parseNotesFromChart } from './chart/chart-parser'
 export { parseNotesFromMidi } from './chart/midi-parser'
 export { calculateTrackHash } from './chart/track-hasher'
+export { parseChartFolder } from './chart/chart-folder-parser'
 
 /**
  * Scans `files` as a chart folder, and returns a `ScannedChart` object.

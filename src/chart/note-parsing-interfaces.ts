@@ -37,6 +37,8 @@ export interface RawChartData {
 	chartTicksPerBeat: number
 	/** Line ending style of the source .chart file. Only set for .chart files. */
 	lineEnding?: '\r\n' | '\n'
+	/** Whether the source .chart file had a UTF-8 BOM (EF BB BF). */
+	hasBom?: boolean
 	/** Whether the source .chart file had a trailing newline after the last }. */
 	hasTrailingNewline?: boolean
 	metadata: ChartMetadata

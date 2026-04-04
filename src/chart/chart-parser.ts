@@ -80,7 +80,8 @@ export function parseNotesFromChart(data: Uint8Array): RawChartData {
 	const decoder = new TextDecoder(encoding)
 	const chartText = decoder.decode(data)
 
-	// Detect line ending and trailing newline for roundtrip fidelity
+	// Detect encoding details for roundtrip fidelity
+	const hasBom = data[0] === 0xEF && data[1] === 0xBB && data[2] === 0xBF
 	const lineEnding: '\r\n' | '\n' = chartText.includes('\r\n') ? '\r\n' : '\n'
 	const hasTrailingNewline = chartText.endsWith('\n')
 
@@ -141,6 +142,7 @@ export function parseNotesFromChart(data: Uint8Array): RawChartData {
 
 	return {
 		chartTicksPerBeat: resolution,
+		hasBom,
 		lineEnding,
 		hasTrailingNewline,
 		metadata: {

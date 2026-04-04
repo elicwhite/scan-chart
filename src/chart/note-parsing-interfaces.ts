@@ -39,6 +39,13 @@ export interface RawChartData {
 	lineEnding?: '\r\n' | '\n'
 	/** Whether the source .chart file had a UTF-8 BOM (EF BB BF). */
 	hasBom?: boolean
+	/**
+	 * Complete raw text of the source .chart file. Used by the writer for
+	 * byte-level roundtrip when no edits have been made. Enables perfect
+	 * preservation of inter-section whitespace, malformed lines, and any
+	 * formatting quirks that individual passthrough fields can't capture.
+	 */
+	rawChartText?: string
 	/** Whether the source .chart file had a trailing newline after the last }. */
 	hasTrailingNewline?: boolean
 	metadata: ChartMetadata

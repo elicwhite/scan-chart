@@ -147,6 +147,7 @@ export function parseNotesFromChart(data: Uint8Array): RawChartData {
 		hasBom,
 		lineEnding,
 		hasTrailingNewline,
+		rawChartText: (hasBom ? '\uFEFF' : '') + chartText,
 		metadata: {
 			name: metadata['Name'] || undefined,
 			artist: metadata['Artist'] || undefined,

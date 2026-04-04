@@ -105,11 +105,22 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 		midiTrackOrder.push(trackKey)
 		// Save raw delta-time events for all non-tempo tracks.
 		if (idx > 0) {
-			// Already in delta-time format (before convertToAbsoluteTime)
-			// Strip `running` — parser artifact that causes mismatches on re-parse
-			midiInstrumentTracks[trackKey] = track.map(e => {
+			// Already in delta-time format (before convertToAbsoluteTime).
+			// Strip `running` (parser artifact) and fix corrupted negative deltas
+			// by converting to absolute time, sorting, and converting back.
+			let absTick = 0
+			const absEvents = track.map(e => {
+				absTick += e.deltaTime
 				const { running: _, ...rest } = e as MidiEvent & { running?: boolean }
-				return rest
+				return { ...rest, _absTick: absTick }
+			})
+			absEvents.sort((a, b) => a._absTick - b._absTick)
+			let prevTick = 0
+			midiInstrumentTracks[trackKey] = absEvents.map(e => {
+				const delta = Math.max(0, e._absTick - prevTick)
+				prevTick = e._absTick
+				const { _absTick, ...rest } = e as any
+				return { ...rest, deltaTime: delta }
 			})
 		}
 	}

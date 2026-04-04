@@ -329,8 +329,11 @@ function convertToAbsoluteTime(midiData: MidiData) {
 
 /** Convert absolute-time events back to delta-time for storage/writing. */
 function convertToDeltaTime(events: MidiEvent[]): MidiEvent[] {
+	// Sort by absolute time — some MIDI files have corrupted negative delta times
+	// that produce non-monotonic absolute times. Sorting ensures valid output.
+	const sorted = [...events].sort((a, b) => a.deltaTime - b.deltaTime)
 	let prevTick = 0
-	return events.map(event => {
+	return sorted.map(event => {
 		const delta = event.deltaTime - prevTick
 		prevTick = event.deltaTime
 		// Strip `running` — it's a parser artifact from midi-file indicating

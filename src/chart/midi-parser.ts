@@ -88,15 +88,20 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 	// Preserve raw tempo track (track 0) before absolute time conversion
 	const midiTempoTrack = midiFile.tracks[0]?.map(e => ({ ...e }))
 
-	// Capture original track ordering and raw instrument track data before conversion
+	// Capture original track ordering and raw instrument track data before conversion.
+	// Use the LAST trackName event at deltaTime 0, matching getTracks() behavior
+	// (some tracks have multiple trackName events with different names).
 	const midiTrackOrder: string[] = []
 	const midiInstrumentTracks: Record<string, MidiEvent[]> = {}
 	for (const track of midiFile.tracks) {
-		const nameEvt = track.find(e => e.deltaTime === 0 && e.type === 'trackName')
-		const name = nameEvt ? (nameEvt as any).text : ''
+		let name = ''
+		for (const event of track) {
+			if (event.deltaTime !== 0) break
+			if (event.type === 'trackName') name = (event as any).text
+		}
 		midiTrackOrder.push(name)
-		// Save raw delta-time events for known instrument tracks, EVENTS, and PART VOCALS
-		if (name && name !== midiTrackOrder[0]) {
+		// Save raw delta-time events for all non-tempo tracks
+		if (name && midiTrackOrder.length > 1) {
 			// Already in delta-time format (before convertToAbsoluteTime)
 			// Strip `running` — parser artifact that causes mismatches on re-parse
 			midiInstrumentTracks[name] = track.map(e => {

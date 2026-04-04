@@ -318,11 +318,12 @@ function getFileSections(chartText: string) {
 			if (!thisSection) {
 				throw `Invalid .chart file: end of section reached before a section name was found at index ${i}`
 			}
-			// Trim each line because of Windows \r\n shenanigans
+			// Strip \r and leading whitespace, but preserve trailing whitespace
+			// for byte-level roundtrip fidelity
 			sections[thisSection] = chartText
 				.slice(readStartIndex, i)
 				.split('\n')
-				.map(line => line.trim())
+				.map(line => line.replace(/\r$/, '').trimStart())
 				.filter(line => line.length)
 		} else if (chartText[i] === '[') {
 			readStartIndex = i + 1

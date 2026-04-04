@@ -99,12 +99,15 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 			if (event.deltaTime !== 0) break
 			if (event.type === 'trackName') name = (event as any).text
 		}
-		midiTrackOrder.push(name)
-		// Save raw delta-time events for all non-tempo tracks
-		if (name && midiTrackOrder.length > 1) {
+		// Use index-based key for unnamed or duplicate tracks to avoid collisions.
+		const idx = midiTrackOrder.length
+		const trackKey = (name && !(name in midiInstrumentTracks)) ? name : `${name || '__unnamed'}__${idx}`
+		midiTrackOrder.push(trackKey)
+		// Save raw delta-time events for all non-tempo tracks.
+		if (idx > 0) {
 			// Already in delta-time format (before convertToAbsoluteTime)
 			// Strip `running` — parser artifact that causes mismatches on re-parse
-			midiInstrumentTracks[name] = track.map(e => {
+			midiInstrumentTracks[trackKey] = track.map(e => {
 				const { running: _, ...rest } = e as MidiEvent & { running?: boolean }
 				return rest
 			})

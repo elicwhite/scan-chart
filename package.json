@@ -21,6 +21,11 @@
 		"url": "https://github.com/Geomitron/scan-chart/issues"
 	},
 	"homepage": "https://github.com/Geomitron/scan-chart#readme",
+	"pnpm": {
+		"patchedDependencies": {
+			"midi-file@1.2.4": "patches/midi-file@1.2.4.patch"
+		}
+	},
 	"dependencies": {
 		"@noble/hashes": "^1.4.0",
 		"bottleneck": "^2.19.5",

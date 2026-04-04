@@ -118,6 +118,51 @@ export interface RawChartData {
 			type: EventType
 		}[]
 	}[]
+
+	/**
+	 * Raw key-value pairs from the .chart [Song] section, preserving original
+	 * field order and unknown fields (Player2, MediaType, etc.) that aren't
+	 * parsed into metadata. Used by the .chart writer for roundtrip fidelity.
+	 * Only populated when parsing .chart files.
+	 */
+	chartSongSection?: Array<{ key: string; value: string }>
+
+	/**
+	 * Raw lines from the .chart [Events] section, preserving original event
+	 * order and any events that aren't parsed into sections/lyrics/vocalPhrases.
+	 * Used by the .chart writer for byte-level roundtrip fidelity.
+	 * Only populated when parsing .chart files.
+	 */
+	chartEventsSection?: string[]
+
+	/**
+	 * Raw lines from the .chart [SyncTrack] section, preserving original
+	 * TS/B ordering. Used by the .chart writer for byte-level roundtrip fidelity.
+	 * Only populated when parsing .chart files.
+	 */
+	chartSyncTrackSection?: string[]
+
+	/**
+	 * Raw lines for each .chart track section, preserving original event order
+	 * and unknown event types. Keyed by section name (e.g. "ExpertSingle").
+	 * Used by the .chart writer for byte-level roundtrip fidelity.
+	 * Only populated when parsing .chart files.
+	 */
+	chartTrackSections?: Record<string, string[]>
+
+	/**
+	 * MIDI tracks whose names aren't recognized by the parser.
+	 * Preserved verbatim so the MIDI writer can emit them for roundtrip fidelity.
+	 * Only populated when parsing .mid files.
+	 */
+	unknownMidiTracks?: Array<{ name: string; events: MidiEvent[] }>
+
+	/**
+	 * .chart track sections whose names aren't recognized by the parser.
+	 * Preserved verbatim so the .chart writer can emit them for roundtrip fidelity.
+	 * Only populated when parsing .chart files.
+	 */
+	unknownChartSections?: Array<{ name: string; lines: string[] }>
 }
 
 export type EventType = ObjectValues<typeof eventTypes>

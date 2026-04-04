@@ -96,6 +96,37 @@ export function parseNotesFromChart(data: Uint8Array): RawChartData {
 		.fromPairs()
 		.value()
 
+	// Capture raw [Song] key-value pairs for roundtrip fidelity
+	const chartSongSection: Array<{ key: string; value: string }> | undefined =
+		fileSections['Song']
+			? _.chain(fileSections['Song'])
+					.map(line => /^(.+?) = (.*)$/.exec(line))
+					.compact()
+					.map(([, key, value]) => ({ key: key.trim(), value: value.trim() }))
+					.value()
+			: undefined
+
+	// Capture raw [Events] and [SyncTrack] lines for roundtrip fidelity
+	const chartEventsSection = fileSections['Events'] ?? undefined
+	const chartSyncTrackSection = fileSections['SyncTrack'] ?? undefined
+
+	// Capture raw track section lines for roundtrip fidelity
+	const chartTrackSections: Record<string, string[]> = {}
+	for (const sectionName of _.keys(trackNameMap)) {
+		if (fileSections[sectionName]) {
+			chartTrackSections[sectionName] = fileSections[sectionName]
+		}
+	}
+
+	// Collect unknown sections for roundtrip fidelity
+	const knownSections = new Set([..._.keys(trackNameMap), 'Song', 'SyncTrack', 'Events'])
+	const unknownChartSections: Array<{ name: string; lines: string[] }> = []
+	for (const sectionName of _.keys(fileSections)) {
+		if (!knownSections.has(sectionName)) {
+			unknownChartSections.push({ name: sectionName, lines: fileSections[sectionName] })
+		}
+	}
+
 	const resolution = Number(metadata['Resolution'])
 	if (!resolution) {
 		throw 'Invalid .chart file: resolution not found.'
@@ -244,6 +275,11 @@ export function parseNotesFromChart(data: Uint8Array): RawChartData {
 				return result
 			})
 			.value(),
+		chartSongSection: chartSongSection && chartSongSection.length > 0 ? chartSongSection : undefined,
+		chartEventsSection: chartEventsSection && chartEventsSection.length > 0 ? chartEventsSection : undefined,
+		chartSyncTrackSection: chartSyncTrackSection && chartSyncTrackSection.length > 0 ? chartSyncTrackSection : undefined,
+		chartTrackSections: Object.keys(chartTrackSections).length > 0 ? chartTrackSections : undefined,
+		unknownChartSections: unknownChartSections.length > 0 ? unknownChartSections : undefined,
 	}
 }
 

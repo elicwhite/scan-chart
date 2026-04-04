@@ -98,7 +98,11 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 		// Save raw delta-time events for known instrument tracks, EVENTS, and PART VOCALS
 		if (name && name !== midiTrackOrder[0]) {
 			// Already in delta-time format (before convertToAbsoluteTime)
-			midiInstrumentTracks[name] = track.map(e => ({ ...e }))
+			// Strip `running` — parser artifact that causes mismatches on re-parse
+			midiInstrumentTracks[name] = track.map(e => {
+				const { running: _, ...rest } = e as MidiEvent & { running?: boolean }
+				return rest
+			})
 		}
 	}
 

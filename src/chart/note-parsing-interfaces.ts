@@ -35,17 +35,11 @@ export const defaultIniChartModifiers = {
  */
 export interface RawChartData {
 	chartTicksPerBeat: number
-	metadata: {
-		name?: string
-		artist?: string
-		album?: string
-		genre?: string
-		year?: string
-		charter?: string
-		diff_guitar?: number
-		delay?: number
-		preview_start_time?: number
-	}
+	/** Line ending style of the source .chart file. Only set for .chart files. */
+	lineEnding?: '\r\n' | '\n'
+	/** Whether the source .chart file had a trailing newline after the last }. */
+	hasTrailingNewline?: boolean
+	metadata: ChartMetadata
 	hasLyrics: boolean
 	hasVocals: boolean
 	lyrics: {
@@ -68,6 +62,10 @@ export interface RawChartData {
 		tick: number
 		numerator: number
 		denominator: number
+		/** MIDI clocks per metronome tick. Only from MIDI files. Default 24. */
+		metronome?: number
+		/** 32nd notes per MIDI quarter note. Only from MIDI files. Default 8. */
+		thirtyseconds?: number
 	}[]
 	sections: {
 		tick: number

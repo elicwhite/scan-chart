@@ -80,6 +80,10 @@ export function parseNotesFromChart(data: Uint8Array): RawChartData {
 	const decoder = new TextDecoder(encoding)
 	const chartText = decoder.decode(data)
 
+	// Detect line ending and trailing newline for roundtrip fidelity
+	const lineEnding: '\r\n' | '\n' = chartText.includes('\r\n') ? '\r\n' : '\n'
+	const hasTrailingNewline = chartText.endsWith('\n')
+
 	const fileSections = getFileSections(chartText)
 	if (_.values(fileSections).length === 0) {
 		throw 'Invalid .chart file: no sections were found.'
@@ -106,6 +110,8 @@ export function parseNotesFromChart(data: Uint8Array): RawChartData {
 
 	return {
 		chartTicksPerBeat: resolution,
+		lineEnding,
+		hasTrailingNewline,
 		metadata: {
 			name: metadata['Name'] || undefined,
 			artist: metadata['Artist'] || undefined,

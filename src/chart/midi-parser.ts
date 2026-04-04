@@ -134,6 +134,8 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 				tick: e.deltaTime,
 				numerator: e.numerator,
 				denominator: e.denominator,
+				metronome: e.metronome,
+				thirtyseconds: e.thirtyseconds,
 			}))
 			.tap(timeSignatures => {
 				const zeroTimeSignatureN = timeSignatures.find(timeSignature => timeSignature.numerator === 0)
@@ -145,7 +147,7 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 					throw `Invalid .mid file: Time signature denominator at tick ${zeroTimeSignatureD.tick} was zero.`
 				}
 				if (!timeSignatures[0] || timeSignatures[0].tick !== 0) {
-					timeSignatures.unshift({ tick: 0, numerator: 4, denominator: 4 })
+					timeSignatures.unshift({ tick: 0, numerator: 4, denominator: 4, metronome: 24, thirtyseconds: 8 })
 				}
 			})
 			.value(),

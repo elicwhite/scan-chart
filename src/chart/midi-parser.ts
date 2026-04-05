@@ -325,7 +325,8 @@ function trackDataToMoonTracks(
 		// - Versus phrases (notes 105-106)
 		{
 			const phraseTrackNames = _.keys(_.pickBy(instrumentNameMap, v => v === td.instrument))
-			const midiTrack = midiTracks.find(t => phraseTrackNames.includes(t.trackName))
+			// Use findLast to match the "last track wins" behavior for duplicate tracks
+			const midiTrack = _.findLast(midiTracks, t => phraseTrackNames.includes(t.trackName))
 			if (midiTrack) {
 				// MIDI phrase notes to PhraseType
 				const midiPhraseMappings: Record<number, PhraseType> = {
@@ -643,7 +644,7 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 			track.starPowerSections = dedupByTickLen(track.starPowerSections)
 			track.soloSections = dedupByTickLen(track.soloSections)
 			track.drumFreestyleSections = dedupByTickLen(track.drumFreestyleSections)
-			track.flexLanes = dedupByTickLen(track.flexLanes)
+			track.flexLanes = dedupFlexLanes(track.flexLanes)
 			return track
 		})
 		.value()
@@ -777,6 +778,84 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 					}))
 				: undefined,
 	}
+}
+
+function dedupByTickType<T extends { tick: number; type: unknown; length?: number }>(arr: T[]): T[] {
+	const kept = new Map<string, number>() // key → index in result
+	const result: T[] = []
+	for (let i = 0; i < arr.length; i++) {
+		const e = arr[i]
+		const key = `${e.tick}:${e.type}`
+		const existingIdx = kept.get(key)
+		if (existingIdx === undefined) {
+			kept.set(key, result.length)
+			result.push(e)
+		} else {
+			// When duplicate events exist at the same tick+type (e.g. multi-channel MIDI),
+			// keep the one with the shorter length to match YARG's "first to complete" insertion.
+			const existing = result[existingIdx]
+			if ((e.length ?? 0) < (existing.length ?? 0)) {
+				result[existingIdx] = e
+			}
+		}
+	}
+	return result
+}
+
+function dedupByTickLen<T extends { tick: number; length?: number }>(arr: T[]): T[] {
+	const seen = new Set<string>()
+	return arr.filter(e => {
+		const key = `${e.tick}:${e.length || 0}`
+		if (seen.has(key)) return false
+		seen.add(key)
+		return true
+	})
+}
+
+/** Dedup flex lanes by tick+isDouble (not tick+length) so co-located tremolo+trill are both preserved. */
+function dedupFlexLanes(arr: { tick: number; length: number; isDouble: boolean }[]): typeof arr {
+	const seen = new Set<string>()
+	return arr.filter(e => {
+		const key = `${e.tick}:${e.isDouble}`
+		if (seen.has(key)) return false
+		seen.add(key)
+		return true
+	})
+}
+
+/**
+ * Remove accent/ghost modifier events that don't have a matching base note at the same tick.
+ * splitMidiModifierSustains() can produce these when modifier sustains overlap ticks
+ * that don't have a corresponding base note.
+ */
+function removeOrphanedAccentGhost(trackEvents: { tick: number; type: EventType; length: number }[]) {
+	const accentGhostToBase: Partial<Record<EventType, EventType>> = {
+		[eventTypes.kickAccent]: eventTypes.kick,
+		[eventTypes.kickGhost]: eventTypes.kick,
+		[eventTypes.redAccent]: eventTypes.redDrum,
+		[eventTypes.redGhost]: eventTypes.redDrum,
+		[eventTypes.yellowAccent]: eventTypes.yellowDrum,
+		[eventTypes.yellowGhost]: eventTypes.yellowDrum,
+		[eventTypes.blueAccent]: eventTypes.blueDrum,
+		[eventTypes.blueGhost]: eventTypes.blueDrum,
+		[eventTypes.fiveOrangeFourGreenAccent]: eventTypes.fiveOrangeFourGreenDrum,
+		[eventTypes.fiveOrangeFourGreenGhost]: eventTypes.fiveOrangeFourGreenDrum,
+		[eventTypes.fiveGreenAccent]: eventTypes.fiveGreenDrum,
+		[eventTypes.fiveGreenGhost]: eventTypes.fiveGreenDrum,
+	}
+
+	const baseNotes = new Set<string>()
+	for (const ev of trackEvents) {
+		if (accentGhostToBase[ev.type] === undefined) {
+			baseNotes.add(`${ev.tick}:${ev.type}`)
+		}
+	}
+
+	return trackEvents.filter(ev => {
+		const base = accentGhostToBase[ev.type]
+		if (base !== undefined) return baseNotes.has(`${ev.tick}:${base}`)
+		return true
+	})
 }
 
 function convertToAbsoluteTime(midiData: MidiData) {

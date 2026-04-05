@@ -377,6 +377,34 @@ function trackDataToMoonTracks(
 			}
 		}
 
+		// Range-based force modifier correction using original sustain ranges.
+		// The per-tick loop above applies modifiers at zero-length event ticks.
+		// YARG applies forceHopo/forceStrum to ALL notes in [start, end).
+		// This pass corrects force conflicts by re-applying from sustain ranges,
+		// preserving per-tick flags that are already correct.
+		if (!isDrums && td.modifierSustains.length > 0) {
+			// Process sustains in order: last one at each note tick wins.
+			// YARG processes force modifiers when the note_off is encountered,
+			// so sort by end tick (tick + length) to match YARG's processing order.
+			const forceSustains = td.modifierSustains
+				.filter(m => m.type === eventTypes.forceStrum || m.type === eventTypes.forceHopo)
+				.sort((a, b) => (a.tick + a.length) - (b.tick + b.length))
+
+			for (const mod of forceSustains) {
+				const endTick = mod.tick + mod.length
+				for (const n of notes) {
+					if (n.tick < mod.tick || n.tick >= endTick) continue
+					if (mod.type === eventTypes.forceStrum) {
+						n.flags |= moonNoteFlags.forcedStrum
+						n.flags &= ~moonNoteFlags.forcedHopo
+					} else {
+						n.flags |= moonNoteFlags.forcedHopo
+						n.flags &= ~moonNoteFlags.forcedStrum
+					}
+				}
+			}
+		}
+
 		// SysEx tap clears hopo/strum (runs first via sysexProcessList in YARG).
 		// Note 104 tap keeps hopo/strum (runs after via forcingProcessList), but this is rare.
 		// We clear hopo/strum since SysEx tap is the dominant source.

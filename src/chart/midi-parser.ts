@@ -681,10 +681,11 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 				if (bracketStart >= 0 && bracketEnd > bracketStart) {
 					text = text.slice(bracketStart + 1, bracketEnd)
 				}
-				// Parse section/prc prefix
-				const match = /^(?:section|prc)[ _](.*)$/.exec(text)
+				// Parse section/prc prefix (YARG strips prefix then TrimStart('_').Trim())
+				// "section " requires space/underscore, "prc" does not (prcVerse_1a is valid)
+				const match = /^(?:section[ _]|prc[ _]?)(.*)$/.exec(text)
 				if (!match) return null
-				return { tick: e.deltaTime, name: match[1].trim() }
+				return { tick: e.deltaTime, name: match[1].replace(/^_/, '').trim() }
 			})
 			.compact()
 			.value(),
@@ -707,7 +708,7 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 			.filter((e): e is MidiTextEvent => {
 				if (e.type !== 'text' && e.type !== 'lyrics' && e.type !== 'marker' && e.type !== 'cuePoint') return false
 				const text = (e as MidiTextEvent).text.trim()
-				if (/^\[?(?:section|prc)[ _]/.test(text)) return false
+				if (/^\[?(?:section[ _]|prc[ _]?)/.test(text)) return false
 				if (/^\[?end\]?$/.test(text)) return false
 				if (/^\[?coda\]?$/.test(text)) return false
 				return true

@@ -175,10 +175,16 @@ function trackDataToMoonTracks(
 					for (const n of notesAtTick) n.flags |= moonNoteFlags.tap
 					break
 				case eventTypes.forceStrum:
-					for (const n of notesAtTick) n.flags |= moonNoteFlags.forcedStrum
+					for (const n of notesAtTick) {
+						n.flags |= moonNoteFlags.forcedStrum
+						n.flags &= ~moonNoteFlags.forcedHopo  // Strum clears hopo (YARG behavior)
+					}
 					break
 				case eventTypes.forceHopo:
-					for (const n of notesAtTick) n.flags |= moonNoteFlags.forcedHopo
+					for (const n of notesAtTick) {
+						n.flags |= moonNoteFlags.forcedHopo
+						n.flags &= ~moonNoteFlags.forcedStrum  // Hopo clears strum (YARG behavior)
+					}
 					break
 				case eventTypes.forceUnnatural:
 					// .chart "force" → MoonNote Forced flag
@@ -190,7 +196,7 @@ function trackDataToMoonTracks(
 					for (const n of notesAtTick) { if (n.rawNote === 0) n.flags |= moonNoteFlags.doubleKick }
 					break
 				case eventTypes.kickAccent:
-					for (const n of notesAtTick) { if (n.rawNote === 0) n.flags |= moonNoteFlags.proDrumsAccent }
+					// YARG/MoonSong doesn't support kick accent (pad 0 excluded from velocity processing)
 					break
 				case eventTypes.redAccent:
 					for (const n of notesAtTick) { if (n.rawNote === 1) n.flags |= moonNoteFlags.proDrumsAccent }
@@ -208,7 +214,7 @@ function trackDataToMoonTracks(
 					for (const n of notesAtTick) { if (n.rawNote === 5) n.flags |= moonNoteFlags.proDrumsAccent }
 					break
 				case eventTypes.kickGhost:
-					for (const n of notesAtTick) { if (n.rawNote === 0) n.flags |= moonNoteFlags.proDrumsGhost }
+					// YARG/MoonSong doesn't support kick ghost (pad 0 excluded from velocity processing)
 					break
 				case eventTypes.redGhost:
 					for (const n of notesAtTick) { if (n.rawNote === 1) n.flags |= moonNoteFlags.proDrumsGhost }
@@ -355,12 +361,15 @@ function trackDataToMoonTracks(
 		{
 			const midiTrack = midiTracks.find(t => trackNamesForInstrument.includes(t.trackName))
 			if (midiTrack) {
+				// MoonSong includes all BaseTextEvent types except trackName and copyrightNotice
+				const textEventTypes = new Set(['text', 'lyrics', 'instrumentName', 'marker', 'cuePoint'])
 				for (const ev of midiTrack.trackEvents) {
-					if (ev.type === 'text') {
-						const text = (ev as MidiTextEvent).text.trim()
-						// Skip control text events that are handled elsewhere
-						if (text === 'ENHANCED_OPENS' || text === '[ENHANCED_OPENS]') continue
-						if (text === 'ENABLE_CHART_DYNAMICS' || text === '[ENABLE_CHART_DYNAMICS]') continue
+					if (textEventTypes.has(ev.type)) {
+						const text = ((ev as MidiTextEvent).text ?? '').trim()
+						if (!text) continue
+						// Only filter control events for the relevant instrument
+						if (isDrums && (text === 'ENABLE_CHART_DYNAMICS' || text === '[ENABLE_CHART_DYNAMICS]')) continue
+						if (!isDrums && (text === 'ENHANCED_OPENS' || text === '[ENHANCED_OPENS]')) continue
 						textEvents.push({ tick: ev.deltaTime, text })
 					}
 				}
@@ -372,6 +381,18 @@ function trackDataToMoonTracks(
 			if (n.flags & moonNoteFlags.tap) {
 				n.flags &= ~(moonNoteFlags.forcedHopo | moonNoteFlags.forcedStrum | moonNoteFlags.forced)
 			}
+		}
+
+		// Dedup text events by tick+text (MoonSong deduplicates via InsertionEquals)
+		{
+			const seen = new Set<string>()
+			const deduped: { tick: number; text: string }[] = []
+			for (const te of textEvents) {
+				const key = `${te.tick}:${te.text}`
+				if (!seen.has(key)) { seen.add(key); deduped.push(te) }
+			}
+			textEvents.length = 0
+			textEvents.push(...deduped)
 		}
 
 		// Sort notes
@@ -589,6 +610,12 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 				// Note that this operation is float64 division, and is impacted by floating point precision errors
 				beatsPerMinute: 60000000 / e.microsecondsPerBeat,
 			}))
+			// Dedup by tick — last value at a given tick wins (matches MoonSong behavior)
+			.thru(tempos => {
+				const byTick = new Map<number, typeof tempos[0]>()
+				for (const t of tempos) byTick.set(t.tick, t)
+				return [...byTick.values()]
+			})
 			.tap(tempos => {
 				const zeroTempo = tempos.find(tempo => tempo.beatsPerMinute === 0)
 				if (zeroTempo) {
@@ -625,11 +652,21 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 		sections: _.chain(tracks)
 			.find(t => t.trackName === 'EVENTS')
 			.get('trackEvents')
-			.filter((e): e is MidiTextEvent => e.type === 'text' && /^\[?(?:section|prc)[ _]([^\]]*)\]?$/.test(e.text))
-			.map(e => ({
-				tick: e.deltaTime,
-				name: e.text.match(/^\[?(?:section|prc)[ _]([^\]]*)\]?$/)![1],
-			}))
+			.filter((e): e is MidiTextEvent => e.type === 'text')
+			.map(e => {
+				// Normalize: strip brackets (matching YARG's NormalizeTextEvent)
+				let text = e.text.trim()
+				const bracketStart = text.indexOf('[')
+				const bracketEnd = text.indexOf(']')
+				if (bracketStart >= 0 && bracketEnd > bracketStart) {
+					text = text.slice(bracketStart + 1, bracketEnd)
+				}
+				// Parse section/prc prefix
+				const match = /^(?:section|prc)[ _](.*)$/.exec(text)
+				if (!match) return null
+				return { tick: e.deltaTime, name: match[1].trim() }
+			})
+			.compact()
 			.value(),
 		endEvents: _.chain(tracks)
 			.find(t => t.trackName === 'EVENTS')
@@ -729,7 +766,9 @@ function getTrackEventEnds(events: MidiEvent[], instrumentType: InstrumentType) 
 						tick: event.deltaTime,
 						type,
 						channel: 1,
-						velocity: 127,
+						// Use velocity 0 as sentinel for SysEx-sourced events, so splitMidiModifierSustains
+						// can distinguish SysEx forceTap (inclusive end) from MIDI note 104 (exclusive end).
+						velocity: 0,
 						isStart: event.data[6] === 0x01,
 					})
 				}
@@ -818,6 +857,7 @@ function getInstrumentEventType(note: number) {
 		case 116:
 			return eventTypes.starPower
 		case 120:
+			if (instrumentType !== instrumentTypes.drums) return null
 			return eventTypes.freestyleSection
 		// Note: The official spec says all five need to be active to count as a drum fill, but some charts don't do this.
 		// Most other popular parsers only check midi note 120 for better compatibility.
@@ -1021,7 +1061,14 @@ function splitMidiModifierSustains(events: { [key in Difficulty]: MidiTrackEvent
 				continue
 			}
 
-			_.remove(activeModifiers, m => (m.length === 0 ? m.tick + m.length < event.tick : m.tick + m.length <= event.tick))
+			// SysEx forceTap includes the end tick (per Phase Shift / Clone Hero / YARG).
+			// MIDI note 104 forceTap excludes the end tick.
+			// SysEx-sourced events have velocity=0 (sentinel); note 104 has velocity>0.
+			_.remove(activeModifiers, m => {
+				if (m.length === 0) return m.tick + m.length < event.tick
+				if (m.type === eventTypes.forceTap && m.velocity === 0) return m.tick + m.length < event.tick
+				return m.tick + m.length <= event.tick
+			})
 
 			if (modifierSustains.includes(event.type)) {
 				activeModifiers.push(event)

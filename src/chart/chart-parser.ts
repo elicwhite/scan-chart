@@ -85,7 +85,7 @@ function chartNToGuitarRawNote(n: number): { rawNote: number } | { flag: number 
 }
 
 /** .chart N value → rawNote for drums. */
-function chartNToDrumRawNote(n: number): { rawNote: number } | { flag: number; pad?: number } | null {
+function chartNToDrumRawNote(n: number): { rawNote: number; defaultFlags?: number } | { flag: number; pad?: number } | null {
 	switch (n) {
 		case 0: return { rawNote: 0 }   // Kick
 		case 1: return { rawNote: 1 }   // Red
@@ -93,14 +93,14 @@ function chartNToDrumRawNote(n: number): { rawNote: number } | { flag: number; p
 		case 3: return { rawNote: 3 }   // Blue
 		case 4: return { rawNote: 4 }   // Orange (5-lane) / Green (4-lane)
 		case 5: return { rawNote: 5 }   // Green (5-lane only)
-		case 32: return { flag: moonNoteFlags.doubleKick, pad: 0 }  // DoubleKick on Kick
-		case 33: return { flag: moonNoteFlags.proDrumsAccent, pad: 0 }  // Kick accent
+		case 32: return { rawNote: 0, defaultFlags: moonNoteFlags.doubleKick }  // DoubleKick — creates kick note with flag
+		case 33: return null  // Kick accent — YARG/MoonSong doesn't support kick accent/ghost
 		case 34: return { flag: moonNoteFlags.proDrumsAccent, pad: 1 }  // Red accent
 		case 35: return { flag: moonNoteFlags.proDrumsAccent, pad: 2 }  // Yellow accent
 		case 36: return { flag: moonNoteFlags.proDrumsAccent, pad: 3 }  // Blue accent
 		case 37: return { flag: moonNoteFlags.proDrumsAccent, pad: 4 }  // Orange accent
 		case 38: return { flag: moonNoteFlags.proDrumsAccent, pad: 5 }  // Green accent
-		case 39: return { flag: moonNoteFlags.proDrumsGhost, pad: 0 }   // Kick ghost
+		case 39: return null  // Kick ghost — YARG/MoonSong doesn't support kick accent/ghost
 		case 40: return { flag: moonNoteFlags.proDrumsGhost, pad: 1 }   // Red ghost
 		case 41: return { flag: moonNoteFlags.proDrumsGhost, pad: 2 }   // Yellow ghost
 		case 42: return { flag: moonNoteFlags.proDrumsGhost, pad: 3 }   // Blue ghost
@@ -219,7 +219,8 @@ function buildMoonTrack(
 	for (const rn of rawNotes) {
 		const mapping = getNMapping(rn.nValue)
 		if (mapping === null || !('rawNote' in mapping)) continue
-		notes.push({ tick: rn.tick, rawNote: mapping.rawNote, length: rn.length, flags: 0 })
+		const m = mapping as { rawNote: number; defaultFlags?: number }
+		notes.push({ tick: rn.tick, rawNote: m.rawNote, length: rn.length, flags: m.defaultFlags ?? 0 })
 	}
 
 	// Sort notes by tick then rawNote
@@ -460,7 +461,7 @@ export function parseNotesFromChart(data: Uint8Array): RawChartData {
 			.compact()
 			.map(([, stringTick, stringName]) => ({
 				tick: Number(stringTick),
-				name: stringName,
+				name: (hadBracket ? stringName.replace(/\]$/, '') : stringName).trim(),
 			}))
 			.value(),
 		endEvents: _.chain(fileSections['Events'])

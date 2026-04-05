@@ -132,15 +132,15 @@ function chartNToGhlRawNote(n: number): { rawNote: number } | { flag: number } |
 	}
 }
 
-/** .chart S value → PhraseType. */
-function chartSToPhraseType(value: string): PhraseType | null {
+/** .chart S value → PhraseType. S 64/65/66 are drums-only in YARG. */
+function chartSToPhraseType(value: string, gameMode: GameMode): PhraseType | null {
 	switch (value) {
 		case '0': return phraseTypes.versusPlayer1
 		case '1': return phraseTypes.versusPlayer2
 		case '2': return phraseTypes.starpower
-		case '64': return phraseTypes.proDrumsActivation
-		case '65': return phraseTypes.tremoloLane
-		case '66': return phraseTypes.trillLane
+		case '64': return gameMode === 'drums' ? phraseTypes.proDrumsActivation : null
+		case '65': return gameMode === 'drums' ? phraseTypes.tremoloLane : null
+		case '66': return gameMode === 'drums' ? phraseTypes.trillLane : null
 		default: return null
 	}
 }
@@ -171,7 +171,7 @@ function buildMoonTrack(
 	const getNMapping = isDrums ? chartNToDrumRawNote : (isGhl ? chartNToGhlRawNote : chartNToGuitarRawNote)
 
 	for (const line of lines) {
-		const match = /^(\d+) = ([A-Z]+) ([\w\s[\]".-]+?)( \d+)?$/.exec(line)
+		const match = /^(\d+) = ([A-Z]+) ([^\r\n{}]+?)( \d+)?$/.exec(line)
 		if (!match) continue
 		const tick = Number(match[1])
 		const typeCode = match[2]
@@ -191,7 +191,7 @@ function buildMoonTrack(
 				break
 			}
 			case 'S': {
-				const pt = chartSToPhraseType(value)
+				const pt = chartSToPhraseType(value, gameMode)
 				if (pt !== null) {
 					phrases.push({ tick, length, type: pt })
 				}
@@ -507,7 +507,7 @@ export function parseNotesFromChart(data: Uint8Array): RawChartData {
 			.map(([trackName, lines]) => {
 				const { instrument, difficulty } = trackNameMap[trackName as TrackName]
 				const trackEvents = _.chain(lines)
-					.map(line => /^(\d+) = ([A-Z]+) ([\w\s[\]".-]+?)( \d+)?$/.exec(line))
+					.map(line => /^(\d+) = ([A-Z]+) ([^\r\n{}]+?)( \d+)?$/.exec(line))
 					.compact()
 					.map(([, tickString, typeCode, value, lengthString]) => {
 						const type = getEventType(typeCode, value, instrument, difficulty)

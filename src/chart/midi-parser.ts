@@ -373,7 +373,7 @@ function trackDataToMoonTracks(
 
 		// Collect per-track text events from MIDI
 		const textEvents: { tick: number; text: string }[] = []
-		// Find the matching MIDI track — instrument may map to multiple track names (e.g. 'T1 GEMS' and 'PART GUITAR')
+		// Find matching MIDI track for text events
 		const trackNamesForInstrument = _.keys(_.pickBy(instrumentNameMap, v => v === td.instrument))
 		{
 			const midiTrack = midiTracks.find(t => trackNamesForInstrument.includes(t.trackName))

@@ -367,11 +367,14 @@ function trackDataToMoonTracks(
 				for (const ev of midiTrack.trackEvents) {
 					if (textEventTypes.has(ev.type)) {
 						const text = ((ev as MidiTextEvent).text ?? '').trim()
-						if (!text) continue
+						// Normalize: strip brackets (matching YARG's NormalizeTextEvent)
+						let normalized = text
+						const bs = text.indexOf('['), be = text.indexOf(']')
+						if (bs >= 0 && be > bs) normalized = text.slice(bs + 1, be).trim()
 						// Only filter control events for the relevant instrument
-						if (isDrums && (text === 'ENABLE_CHART_DYNAMICS' || text === '[ENABLE_CHART_DYNAMICS]')) continue
-						if (!isDrums && (text === 'ENHANCED_OPENS' || text === '[ENHANCED_OPENS]')) continue
-						textEvents.push({ tick: ev.deltaTime, text })
+						if (isDrums && (normalized === 'ENABLE_CHART_DYNAMICS')) continue
+						if (!isDrums && (normalized === 'ENHANCED_OPENS')) continue
+						textEvents.push({ tick: ev.deltaTime, text: normalized })
 					}
 				}
 			}

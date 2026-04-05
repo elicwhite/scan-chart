@@ -141,14 +141,23 @@ function trackDataToMoonTracks(
 
 		// Extract base notes
 		const notes: MoonNote[] = []
+		// Track kick ticks for kick2x dedup
+		const kickTicks = new Set<number>()
 		for (const ev of td.trackEvents) {
 			const rn = rawNoteMap[ev.type]
 			if (rn !== undefined) {
 				notes.push({ tick: ev.tick, rawNote: rn, length: ev.length, flags: 0 })
+				if (ev.type === eventTypes.kick) kickTicks.add(ev.tick)
 			}
-			// kick2x creates a kick note (rawNote=0) with doubleKick flag
+		}
+		// kick2x: creates a kick note ONLY if no regular kick at the same tick
+		// (MoonSong's InsertionEquals deduplicates, keeping the first insertion = regular kick)
+		for (const ev of td.trackEvents) {
 			if (ev.type === eventTypes.kick2x) {
-				notes.push({ tick: ev.tick, rawNote: 0, length: ev.length, flags: moonNoteFlags.doubleKick })
+				if (!kickTicks.has(ev.tick)) {
+					notes.push({ tick: ev.tick, rawNote: 0, length: ev.length, flags: moonNoteFlags.doubleKick })
+				}
+				// When regular kick exists at same tick, doubleKick flag is lost (matches MoonSong)
 			}
 		}
 
@@ -191,9 +200,9 @@ function trackDataToMoonTracks(
 					for (const n of notesAtTick) n.flags |= moonNoteFlags.forced
 					break
 
-				// Drum per-pad modifiers
+				// kick2x: handled by note creation logic (standalone kick2x creates note;
+				// when regular kick coexists, kick2x is dropped to match MoonSong dedup)
 				case eventTypes.kick2x:
-					for (const n of notesAtTick) { if (n.rawNote === 0) n.flags |= moonNoteFlags.doubleKick }
 					break
 				case eventTypes.kickAccent:
 					// YARG/MoonSong doesn't support kick accent (pad 0 excluded from velocity processing)
@@ -400,17 +409,16 @@ function trackDataToMoonTracks(
 
 		// Sort notes and merge duplicates at same tick+rawNote (e.g., kick + kick2x → single kick with doubleKick flag)
 		notes.sort((a, b) => a.tick - b.tick || a.rawNote - b.rawNote)
+		// Dedup notes at same tick+rawNote — MoonSong keeps the first insertion, discards duplicates
 		{
 			const merged: MoonNote[] = []
 			for (const n of notes) {
 				const prev = merged[merged.length - 1]
 				if (prev && prev.tick === n.tick && prev.rawNote === n.rawNote) {
-					// Merge flags — keep the longer sustain (MoonSong keeps the first insertion)
-					prev.flags |= n.flags
-					if (n.length > prev.length) prev.length = n.length
-				} else {
-					merged.push(n)
+					// Discard duplicate (MoonSong's InsertionEquals drops the second one)
+					continue
 				}
+				merged.push(n)
 			}
 			notes.length = 0
 			notes.push(...merged)

@@ -398,8 +398,23 @@ function trackDataToMoonTracks(
 			textEvents.push(...deduped)
 		}
 
-		// Sort notes
+		// Sort notes and merge duplicates at same tick+rawNote (e.g., kick + kick2x → single kick with doubleKick flag)
 		notes.sort((a, b) => a.tick - b.tick || a.rawNote - b.rawNote)
+		{
+			const merged: MoonNote[] = []
+			for (const n of notes) {
+				const prev = merged[merged.length - 1]
+				if (prev && prev.tick === n.tick && prev.rawNote === n.rawNote) {
+					// Merge flags — keep the longer sustain (MoonSong keeps the first insertion)
+					prev.flags |= n.flags
+					if (n.length > prev.length) prev.length = n.length
+				} else {
+					merged.push(n)
+				}
+			}
+			notes.length = 0
+			notes.push(...merged)
+		}
 
 		results.push({
 			instrument: moonInst,
@@ -655,7 +670,8 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 		sections: _.chain(tracks)
 			.find(t => t.trackName === 'EVENTS')
 			.get('trackEvents')
-			.filter((e): e is MidiTextEvent => e.type === 'text')
+			// MoonSong reads sections from all text event types (text, lyrics, marker, cuePoint)
+			.filter((e): e is MidiTextEvent => e.type === 'text' || e.type === 'lyrics' || e.type === 'marker' || e.type === 'cuePoint')
 			.map(e => {
 				// Normalize: strip brackets (matching YARG's NormalizeTextEvent)
 				let text = e.text.trim()
@@ -674,7 +690,9 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 		endEvents: _.chain(tracks)
 			.find(t => t.trackName === 'EVENTS')
 			.get('trackEvents')
-			.filter((e): e is MidiTextEvent => e.type === 'text' && /^\[?end\]?$/.test(e.text))
+			.filter((e): e is MidiTextEvent =>
+				(e.type === 'text' || e.type === 'lyrics' || e.type === 'marker' || e.type === 'cuePoint') &&
+				/^\[?end\]?$/.test((e as MidiTextEvent).text))
 			.map(e => ({
 				tick: e.deltaTime,
 			}))
@@ -686,7 +704,7 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 			.find(t => t.trackName === 'EVENTS')
 			.get('trackEvents')
 			.filter((e): e is MidiTextEvent => {
-				if (e.type !== 'text') return false
+				if (e.type !== 'text' && e.type !== 'lyrics' && e.type !== 'marker' && e.type !== 'cuePoint') return false
 				const text = (e as MidiTextEvent).text.trim()
 				if (/^\[?(?:section|prc)[ _]/.test(text)) return false
 				if (/^\[?end\]?$/.test(text)) return false

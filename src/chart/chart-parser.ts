@@ -2,7 +2,11 @@ import * as _ from 'lodash'
 
 import { Difficulty, Instrument } from 'src/interfaces'
 import { getEncoding } from 'src/utils'
-import { EventType, eventTypes, RawChartData } from './note-parsing-interfaces'
+import {
+	EventType, eventTypes, RawChartData,
+	MoonTrack, MoonNote, MoonPhrase, MoonInstrument, GameMode, PhraseType,
+	getGameMode, moonNoteFlags, phraseTypes,
+} from './note-parsing-interfaces'
 
 /* eslint-disable @typescript-eslint/naming-convention */
 type TrackName = keyof typeof trackNameMap
@@ -60,6 +64,246 @@ const trackNameMap = {
 /* eslint-enable @typescript-eslint/naming-convention */
 
 const discoFlipDifficultyMap = ['easy', 'medium', 'hard', 'expert'] as const
+
+// ---------------------------------------------------------------------------
+// .chart N value → MoonNote rawNote mapping (plan 0029)
+// ---------------------------------------------------------------------------
+
+/** .chart N value → rawNote for 5-fret guitar/bass/rhythm/keys/coop. */
+function chartNToGuitarRawNote(n: number): { rawNote: number } | { flag: number } | null {
+	switch (n) {
+		case 0: return { rawNote: 1 }  // Green
+		case 1: return { rawNote: 2 }  // Red
+		case 2: return { rawNote: 3 }  // Yellow
+		case 3: return { rawNote: 4 }  // Blue
+		case 4: return { rawNote: 5 }  // Orange
+		case 5: return { flag: moonNoteFlags.forced }
+		case 6: return { flag: moonNoteFlags.tap }
+		case 7: return { rawNote: 0 }  // Open
+		default: return null
+	}
+}
+
+/** .chart N value → rawNote for drums. */
+function chartNToDrumRawNote(n: number): { rawNote: number } | { flag: number; pad?: number } | null {
+	switch (n) {
+		case 0: return { rawNote: 0 }   // Kick
+		case 1: return { rawNote: 1 }   // Red
+		case 2: return { rawNote: 2 }   // Yellow
+		case 3: return { rawNote: 3 }   // Blue
+		case 4: return { rawNote: 4 }   // Orange (5-lane) / Green (4-lane)
+		case 5: return { rawNote: 5 }   // Green (5-lane only)
+		case 32: return { flag: moonNoteFlags.doubleKick, pad: 0 }  // DoubleKick on Kick
+		case 33: return { flag: moonNoteFlags.proDrumsAccent, pad: 0 }  // Kick accent
+		case 34: return { flag: moonNoteFlags.proDrumsAccent, pad: 1 }  // Red accent
+		case 35: return { flag: moonNoteFlags.proDrumsAccent, pad: 2 }  // Yellow accent
+		case 36: return { flag: moonNoteFlags.proDrumsAccent, pad: 3 }  // Blue accent
+		case 37: return { flag: moonNoteFlags.proDrumsAccent, pad: 4 }  // Orange accent
+		case 38: return { flag: moonNoteFlags.proDrumsAccent, pad: 5 }  // Green accent
+		case 39: return { flag: moonNoteFlags.proDrumsGhost, pad: 0 }   // Kick ghost
+		case 40: return { flag: moonNoteFlags.proDrumsGhost, pad: 1 }   // Red ghost
+		case 41: return { flag: moonNoteFlags.proDrumsGhost, pad: 2 }   // Yellow ghost
+		case 42: return { flag: moonNoteFlags.proDrumsGhost, pad: 3 }   // Blue ghost
+		case 43: return { flag: moonNoteFlags.proDrumsGhost, pad: 4 }   // Orange ghost
+		case 44: return { flag: moonNoteFlags.proDrumsGhost, pad: 5 }   // Green ghost
+		// Cymbal markers: In MoonSong, yellow/blue/green default to cymbal.
+		// Cymbal marker in .chart = proDrumsCymbal flag. Tom marker (absence) = no flag.
+		// We'll set cymbal flags during post-processing.
+		case 66: return { flag: moonNoteFlags.proDrumsCymbal, pad: 2 }  // Yellow cymbal
+		case 67: return { flag: moonNoteFlags.proDrumsCymbal, pad: 3 }  // Blue cymbal
+		case 68: return { flag: moonNoteFlags.proDrumsCymbal, pad: 4 }  // Green cymbal
+		default: return null
+	}
+}
+
+/** .chart N value → rawNote for GHL (6-fret). */
+function chartNToGhlRawNote(n: number): { rawNote: number } | { flag: number } | null {
+	switch (n) {
+		case 0: return { rawNote: 4 }  // White1
+		case 1: return { rawNote: 5 }  // White2
+		case 2: return { rawNote: 6 }  // White3
+		case 3: return { rawNote: 1 }  // Black1
+		case 4: return { rawNote: 2 }  // Black2
+		case 5: return { flag: moonNoteFlags.forced }
+		case 6: return { flag: moonNoteFlags.tap }
+		case 7: return { rawNote: 0 }  // Open
+		case 8: return { rawNote: 3 }  // Black3
+		default: return null
+	}
+}
+
+/** .chart S value → PhraseType. */
+function chartSToPhraseType(value: string): PhraseType | null {
+	switch (value) {
+		case '0': return phraseTypes.versusPlayer1
+		case '1': return phraseTypes.versusPlayer2
+		case '2': return phraseTypes.starpower
+		case '64': return phraseTypes.proDrumsActivation
+		case '65': return phraseTypes.tremoloLane
+		case '66': return phraseTypes.trillLane
+		default: return null
+	}
+}
+
+/**
+ * Build MoonTrack from raw .chart track events.
+ * Merges modifier N values (force, tap, cymbal, accent, ghost) into flags on notes.
+ */
+function buildMoonTrack(
+	lines: string[],
+	instrument: MoonInstrument,
+	difficulty: Difficulty,
+	gameMode: GameMode,
+): MoonTrack {
+	const notes: MoonNote[] = []
+	const phrases: MoonPhrase[] = []
+	const textEvents: { tick: number; text: string }[] = []
+
+	// First pass: collect raw notes and modifiers
+	interface RawEntry { tick: number; nValue: number; length: number }
+	const rawNotes: RawEntry[] = []
+	const rawModifiers: RawEntry[] = []
+	// Pending solo start tick
+	let soloStartTick: number | null = null
+
+	const isGhl = gameMode === 'ghlguitar'
+	const isDrums = gameMode === 'drums'
+	const getNMapping = isDrums ? chartNToDrumRawNote : (isGhl ? chartNToGhlRawNote : chartNToGuitarRawNote)
+
+	for (const line of lines) {
+		const match = /^(\d+) = ([A-Z]+) ([\w\s[\]"]+?)( \d+)?$/.exec(line)
+		if (!match) continue
+		const tick = Number(match[1])
+		const typeCode = match[2]
+		const value = match[3].replace(/"/g, '')
+		const length = Number(match[4]) || 0
+
+		switch (typeCode) {
+			case 'N': {
+				const n = Number(value)
+				const mapping = getNMapping(n)
+				if (mapping === null) break
+				if ('rawNote' in mapping) {
+					rawNotes.push({ tick, nValue: n, length })
+				} else {
+					rawModifiers.push({ tick, nValue: n, length })
+				}
+				break
+			}
+			case 'S': {
+				const pt = chartSToPhraseType(value)
+				if (pt !== null) {
+					phrases.push({ tick, length, type: pt })
+				}
+				break
+			}
+			case 'E': {
+				if (value === 'solo') {
+					soloStartTick = tick
+				} else if (value === 'soloend') {
+					if (soloStartTick !== null) {
+						// .chart solos have inclusive ends — add 1 to length to match MoonSong
+						phrases.push({ tick: soloStartTick, length: tick + 1 - soloStartTick, type: phraseTypes.solo })
+						soloStartTick = null
+					}
+				} else {
+					// Per-track text events (disco flip, etc.)
+					textEvents.push({ tick, text: value })
+				}
+				break
+			}
+		}
+	}
+
+	// Convert rawNotes to MoonNotes
+	for (const rn of rawNotes) {
+		const mapping = getNMapping(rn.nValue)
+		if (mapping === null || !('rawNote' in mapping)) continue
+		notes.push({ tick: rn.tick, rawNote: mapping.rawNote, length: rn.length, flags: 0 })
+	}
+
+	// Sort notes by tick then rawNote
+	notes.sort((a, b) => a.tick - b.tick || a.rawNote - b.rawNote)
+
+	// Dedup notes by tick+rawNote
+	{
+		const seen = new Set<string>()
+		const deduped: MoonNote[] = []
+		for (const n of notes) {
+			const key = `${n.tick}:${n.rawNote}`
+			if (!seen.has(key)) {
+				seen.add(key)
+				deduped.push(n)
+			}
+		}
+		notes.length = 0
+		notes.push(...deduped)
+	}
+
+	// Apply modifiers as flags
+	// Build tick → notes index for fast lookup
+	const notesByTick = new Map<number, MoonNote[]>()
+	for (const n of notes) {
+		let arr = notesByTick.get(n.tick)
+		if (!arr) { arr = []; notesByTick.set(n.tick, arr) }
+		arr.push(n)
+	}
+
+	for (const mod of rawModifiers) {
+		const mapping = getNMapping(mod.nValue)
+		if (mapping === null || !('flag' in mapping)) continue
+
+		const notesAtTick = notesByTick.get(mod.tick)
+		if (!notesAtTick) continue
+
+		if ('pad' in mapping && mapping.pad !== undefined) {
+			// Drum per-pad modifiers: apply flag only to matching rawNote
+			for (const n of notesAtTick) {
+				if (n.rawNote === mapping.pad) {
+					n.flags |= mapping.flag
+				}
+			}
+		} else {
+			// Guitar/GHL: apply to all notes at this tick
+			for (const n of notesAtTick) {
+				n.flags |= mapping.flag
+			}
+		}
+	}
+
+	// For drums: apply default cymbal flag to yellow(2)/blue(3)/green(4+5)
+	// In MoonSong, these pads default to cymbal. Cymbal markers in .chart ADD the flag.
+	// But the .chart cymbal markers (N 66-68) are the cymbal indicators.
+	// Without a cymbal marker, the note is a tom (no cymbal flag).
+	// WITH a cymbal marker, the note has ProDrums_Cymbal flag.
+	// This matches MoonSong behavior where tom markers REMOVE cymbal.
+	// So .chart cymbal marker = MoonSong default (cymbal), no marker = tom marker present.
+	// Wait — re-reading the plan: "MoonSong stores yellow/blue/green with ProDrums_Cymbal by DEFAULT.
+	// Tom markers CLEAR the flag." And ".chart has cymbalMarker events that SET the flag."
+	// So in .chart: no cymbal marker → tom (no flag). With cymbal marker → cymbal (flag set).
+	// In MoonSong: default → cymbal (flag set). With tom marker → no flag.
+	// The .chart parser should set cymbal flag by default on yellow/blue/green/orange pads,
+	// and cymbal markers in .chart should be ignored (they're redundant with default),
+	// BUT actually .chart uses yellowCymbalMarker to indicate cymbal. Without it, it's a tom.
+	// So we need: if cymbal marker present → keep default cymbal. If not → no cymbal.
+	// Actually, let's match MoonSong: set cymbal on all yellow/blue/green by default.
+	// .chart tom markers (absence of cymbal marker) are NOT how .chart works.
+	// In .chart: N 66/67/68 are cymbal markers. If present, note is cymbal. If absent, tom.
+	// In MIDI: 110/111/112 are tom markers. If present, note is tom. Default is cymbal.
+	// So for .chart → MoonSong: N 66 at tick → yellow has cymbal. No N 66 → yellow is tom.
+	// We already applied proDrumsCymbal flag from N 66/67/68 above. That's correct.
+	// No additional default cymbal needed for .chart.
+
+	// Sort phrases
+	phrases.sort((a, b) => a.tick - b.tick || a.type - b.type)
+
+	return { instrument, difficulty, gameMode, notes, phrases, textEvents, animations: [] }
+}
+
+// Map .chart track names to MoonInstrument (same instruments, just type-safe)
+function trackInstrumentToMoon(instrument: Instrument): MoonInstrument {
+	return instrument as MoonInstrument
+}
 
 /**
  * Parses `buffer` as a chart in the .chart format. Returns all the note data in `RawChartData`, but any
@@ -224,6 +468,35 @@ export function parseNotesFromChart(data: Uint8Array): RawChartData {
 			.compact()
 			.map(([, stringTick]) => ({
 				tick: Number(stringTick),
+			}))
+			.value(),
+		// ── MoonSong-aligned fields (plan 0029) ──
+		tracks: _.chain(fileSections)
+			.pick(_.keys(trackNameMap))
+			.toPairs()
+			.map(([trackName, lines]) => {
+				const { instrument, difficulty } = trackNameMap[trackName as TrackName]
+				const moonInst = trackInstrumentToMoon(instrument)
+				const gm = getGameMode(moonInst)
+				return buildMoonTrack(lines, moonInst, difficulty, gm)
+			})
+			.filter(t => t.notes.length > 0)
+			.value(),
+		globalEvents: _.chain(fileSections['Events'])
+			.map(line => /^(\d+) = E "(.+)"$/.exec(line))
+			.compact()
+			.filter(([, , text]) => {
+				const t = text.trim()
+				// Exclude events already parsed into sections, end events, lyrics, vocal phrases
+				if (/^\[?(?:section|prc)[ _]/.test(t)) return false
+				if (/^\[?end\]?$/.test(t)) return false
+				if (/^lyric /.test(t)) return false
+				if (t === 'phrase_start' || t === 'phrase_end') return false
+				return true
+			})
+			.map(([, stringTick, text]) => ({
+				tick: Number(stringTick),
+				text: text.trim(),
 			}))
 			.value(),
 		trackData: _.chain(fileSections)

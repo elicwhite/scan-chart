@@ -1,6 +1,148 @@
 import { Difficulty, Instrument } from 'src/interfaces'
 import { ObjectValues } from 'src/utils'
 
+// ---------------------------------------------------------------------------
+// MoonSong-aligned types (plan 0029)
+// ---------------------------------------------------------------------------
+
+// Match MoonInstrument (20 values)
+export type MoonInstrument = (typeof moonInstruments)[number]
+export const moonInstruments = [
+	'guitar', 'guitarcoop', 'bass', 'rhythm', 'keys', 'drums',
+	'guitarghl', 'bassghl', 'rhythmghl', 'guitarcoopghl',
+	'proguitar17', 'proguitar22', 'probass17', 'probass22',
+	'prokeys', 'vocals', 'harmony1', 'harmony2', 'harmony3',
+	'elitedrums',
+] as const
+
+// Match MoonChart.GameMode (7 values — determines rawNote interpretation)
+export type GameMode = (typeof gameModes)[number]
+export const gameModes = [
+	'guitar', 'drums', 'ghlguitar', 'proguitar', 'prokeys', 'vocals', 'elitedrums',
+] as const
+
+/** Map instrument to its gameMode. */
+export function getGameMode(instrument: MoonInstrument): GameMode {
+	switch (instrument) {
+		case 'guitar': case 'guitarcoop': case 'bass': case 'rhythm': case 'keys':
+			return 'guitar'
+		case 'drums':
+			return 'drums'
+		case 'guitarghl': case 'bassghl': case 'rhythmghl': case 'guitarcoopghl':
+			return 'ghlguitar'
+		case 'proguitar17': case 'proguitar22': case 'probass17': case 'probass22':
+			return 'proguitar'
+		case 'prokeys':
+			return 'prokeys'
+		case 'vocals': case 'harmony1': case 'harmony2': case 'harmony3':
+			return 'vocals'
+		case 'elitedrums':
+			return 'elitedrums'
+	}
+}
+
+// Match MoonNote.Flags — same bit positions as YARG.Core
+export type MoonNoteFlag = ObjectValues<typeof moonNoteFlags>
+export const moonNoteFlags = {
+	none: 0,
+	forced: 1 << 0,
+	forcedStrum: 1 << 1,
+	forcedHopo: 1 << 2,
+	tap: 1 << 3,
+	proDrumsCymbal: 1 << 4,
+	proDrumsAccent: 1 << 5,
+	proDrumsGhost: 1 << 6,
+	doubleKick: 1 << 7,
+	proGuitarMuted: 1 << 8,
+	vocalsPercussion: 1 << 9,
+	eliteDrumsFlam: 1 << 10,
+	eliteDrumsForcedIndifferent: 1 << 11,
+	eliteDrumsForcedClosed: 1 << 12,
+	eliteDrumsSplash: 1 << 13,
+	eliteDrumsInvisibleTerminator: 1 << 14,
+	eliteDrumsStrictHatState: 1 << 15,
+	eliteDrumsChannelFlagRed: 1 << 16,
+	eliteDrumsChannelFlagYellow: 1 << 17,
+	eliteDrumsChannelFlagBlue: 1 << 18,
+	eliteDrumsChannelFlagGreen: 1 << 19,
+} as const
+
+// Match MoonPhrase.Type
+export type PhraseType = ObjectValues<typeof phraseTypes>
+export const phraseTypes = {
+	starpower: 0,
+	solo: 1,
+	versusPlayer1: 2,
+	versusPlayer2: 3,
+	tremoloLane: 4,
+	trillLane: 5,
+	proDrumsActivation: 6,
+	vocalsScoringPhrase: 7,
+	vocalsStaticLyricPhrase: 8,
+	vocalsPercussionPhrase: 9,
+	vocalsRangeShift: 10,
+	vocalsLyricShift: 11,
+	proKeysRangeShift0: 12,
+	proKeysRangeShift1: 13,
+	proKeysRangeShift2: 14,
+	proKeysRangeShift3: 15,
+	proKeysRangeShift4: 16,
+	proKeysRangeShift5: 17,
+	proKeysGlissando: 18,
+	eliteDrumsRightCrashLane: 19,
+	eliteDrumsRideLane: 20,
+	eliteDrumsTom3Lane: 21,
+	eliteDrumsTom2Lane: 22,
+	eliteDrumsTom1Lane: 23,
+	eliteDrumsLeftCrashLane: 24,
+	eliteDrumsHiHatLane: 25,
+	eliteDrumsSnareLane: 26,
+	eliteDrumsKickLane: 27,
+	eliteDrumsHatPedalLane: 28,
+	eliteDrumsDiscoFlip: 29,
+} as const
+
+/** MoonSong-aligned per-track structure. One entry per instrument × difficulty. */
+export interface MoonTrack {
+	instrument: MoonInstrument
+	difficulty: Difficulty
+	gameMode: GameMode
+
+	/** One Note per note. Flags (forced, tap, cymbal, etc.) are ON the note. */
+	notes: MoonNote[]
+
+	/** Unified typed phrase array (starpower, solo, activation, etc.). */
+	phrases: MoonPhrase[]
+
+	/** Per-track text events (disco flip, MIDI text events in instrument tracks). */
+	textEvents: { tick: number; text: string }[]
+
+	/** Animation events from MIDI. Empty for .chart. */
+	animations: { tick: number; text: string }[]
+}
+
+/** MoonSong-aligned note. rawNote is instrument-dependent (see MoonNote docs). */
+export interface MoonNote {
+	tick: number
+	/** Instrument-dependent: GuitarFret, DrumPad, GHLiveGuitarFret, etc. */
+	rawNote: number
+	/** Sustain length in ticks. */
+	length: number
+	/** Bitmask of moonNoteFlags. */
+	flags: number
+}
+
+/** MoonSong-aligned phrase (starpower, solo, activation lane, etc.). */
+export interface MoonPhrase {
+	tick: number
+	length: number
+	type: PhraseType
+}
+
+// ---------------------------------------------------------------------------
+// Original types (kept for backwards compatibility during migration)
+// ---------------------------------------------------------------------------
+
 export interface IniChartModifiers {
 	song_length: number
 	hopo_frequency: number
@@ -35,6 +177,19 @@ export const defaultIniChartModifiers = {
  */
 export interface RawChartData {
 	chartTicksPerBeat: number
+
+	// ── MoonSong-aligned fields (plan 0029) ──
+
+	/** MoonSong-aligned per-track data. One entry per non-empty instrument × difficulty. */
+	tracks?: MoonTrack[]
+
+	/** Global text events from [Events] / EVENTS track — NOT sections or end events. */
+	globalEvents?: { tick: number; text: string }[]
+
+	/** Venue events from MIDI VENUE track. */
+	venue?: { tick: number; text: string; type: string; length: number }[]
+
+	// ── End MoonSong-aligned fields ──
 	/** Line ending style of the source .chart file. Only set for .chart files. */
 	lineEnding?: '\r\n' | '\n'
 	/** Whether the source .chart file had a UTF-8 BOM (EF BB BF). */

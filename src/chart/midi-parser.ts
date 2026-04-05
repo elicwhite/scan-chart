@@ -2,7 +2,11 @@ import * as _ from 'lodash'
 import { MidiData, MidiEvent, MidiSetTempoEvent, MidiTextEvent, MidiTimeSignatureEvent, parseMidi } from 'midi-file'
 
 import { difficulties, Difficulty, getInstrumentType, Instrument, InstrumentType, instrumentTypes } from 'src/interfaces'
-import { EventType, eventTypes, IniChartModifiers, RawChartData } from './note-parsing-interfaces'
+import {
+	EventType, eventTypes, IniChartModifiers, RawChartData,
+	MoonTrack, MoonNote, MoonPhrase, MoonInstrument, GameMode,
+	getGameMode, moonNoteFlags, phraseTypes, PhraseType,
+} from './note-parsing-interfaces'
 
 type TrackName = (typeof trackNames)[number]
 type InstrumentTrackName = Exclude<TrackName, 'PART VOCALS' | 'EVENTS'>
@@ -42,6 +46,350 @@ const discoFlipDifficultyMap = ['easy', 'medium', 'hard', 'expert'] as const
 const fiveFretDiffStarts = { easy: 59, medium: 71, hard: 83, expert: 95 }
 const sixFretDiffStarts = { easy: 58, medium: 70, hard: 82, expert: 94 }
 const drumsDiffStarts = { easy: 60, medium: 72, hard: 84, expert: 96 }
+
+// ---------------------------------------------------------------------------
+// MoonSong-aligned MIDI mappings (plan 0029)
+// ---------------------------------------------------------------------------
+
+/** Extended track names including instruments MoonSong supports but scan-chart didn't. */
+type MoonTrackName = keyof typeof moonTrackNameMap
+/* eslint-disable @typescript-eslint/naming-convention */
+const moonTrackNameMap: Record<string, { instrument: MoonInstrument; difficulty?: Difficulty }> = {
+	'T1 GEMS': { instrument: 'guitar' },
+	'PART GUITAR': { instrument: 'guitar' },
+	'PART GUITAR COOP': { instrument: 'guitarcoop' },
+	'PART RHYTHM': { instrument: 'rhythm' },
+	'PART BASS': { instrument: 'bass' },
+	'PART DRUMS': { instrument: 'drums' },
+	'PART KEYS': { instrument: 'keys' },
+	'PART GUITAR GHL': { instrument: 'guitarghl' },
+	'PART GUITAR COOP GHL': { instrument: 'guitarcoopghl' },
+	'PART RHYTHM GHL': { instrument: 'rhythmghl' },
+	'PART BASS GHL': { instrument: 'bassghl' },
+	'PART REAL_GUITAR': { instrument: 'proguitar17' },
+	'PART REAL_GUITAR_22': { instrument: 'proguitar22' },
+	'PART REAL_BASS': { instrument: 'probass17' },
+	'PART REAL_BASS_22': { instrument: 'probass22' },
+	'PART REAL_KEYS_X': { instrument: 'prokeys', difficulty: 'expert' },
+	'PART REAL_KEYS_H': { instrument: 'prokeys', difficulty: 'hard' },
+	'PART REAL_KEYS_M': { instrument: 'prokeys', difficulty: 'medium' },
+	'PART REAL_KEYS_E': { instrument: 'prokeys', difficulty: 'easy' },
+	'PART VOCALS': { instrument: 'vocals' },
+	'HARM1': { instrument: 'harmony1' },
+	'HARM2': { instrument: 'harmony2' },
+	'HARM3': { instrument: 'harmony3' },
+	'PART ELITE_DRUMS': { instrument: 'elitedrums' },
+}
+/* eslint-enable @typescript-eslint/naming-convention */
+
+/**
+ * Convert existing trackData (old model) to MoonTrack[] (new MoonSong-aligned model).
+ * This leverages the existing parsing logic which already handles all the complex
+ * modifier splitting, SysEx, velocity → accent/ghost, etc.
+ */
+function trackDataToMoonTracks(
+	trackData: RawChartData['trackData'],
+	midiTracks: { trackName: string; trackEvents: MidiEvent[] }[],
+): MoonTrack[] {
+	const results: MoonTrack[] = []
+
+	for (const td of trackData) {
+		const moonInst = td.instrument as MoonInstrument
+		const gm = getGameMode(moonInst)
+		const isDrums = gm === 'drums'
+		const isGhl = gm === 'ghlguitar'
+
+		// Map eventType → rawNote
+		const rawNoteMap: Partial<Record<EventType, number>> = isDrums ? {
+			[eventTypes.kick]: 0,
+			[eventTypes.redDrum]: 1,
+			[eventTypes.yellowDrum]: 2,
+			[eventTypes.blueDrum]: 3,
+			[eventTypes.fiveOrangeFourGreenDrum]: 4,
+			[eventTypes.fiveGreenDrum]: 5,
+		} : isGhl ? {
+			[eventTypes.open]: 0,
+			[eventTypes.black1]: 1,
+			[eventTypes.black2]: 2,
+			[eventTypes.black3]: 3,
+			[eventTypes.white1]: 4,
+			[eventTypes.white2]: 5,
+			[eventTypes.white3]: 6,
+		} : {
+			[eventTypes.open]: 0,
+			[eventTypes.green]: 1,
+			[eventTypes.red]: 2,
+			[eventTypes.yellow]: 3,
+			[eventTypes.blue]: 4,
+			[eventTypes.orange]: 5,
+		}
+
+		// Modifier eventTypes that become flags (not separate notes)
+		const modifierTypes: Set<EventType> = new Set([
+			eventTypes.forceOpen, eventTypes.forceTap, eventTypes.forceStrum,
+			eventTypes.forceHopo, eventTypes.forceUnnatural,
+			eventTypes.yellowTomMarker, eventTypes.blueTomMarker, eventTypes.greenTomMarker,
+			eventTypes.yellowCymbalMarker, eventTypes.blueCymbalMarker, eventTypes.greenCymbalMarker,
+			eventTypes.redAccent, eventTypes.yellowAccent, eventTypes.blueAccent,
+			eventTypes.fiveOrangeFourGreenAccent, eventTypes.fiveGreenAccent, eventTypes.kickAccent,
+			eventTypes.redGhost, eventTypes.yellowGhost, eventTypes.blueGhost,
+			eventTypes.fiveOrangeFourGreenGhost, eventTypes.fiveGreenGhost, eventTypes.kickGhost,
+			eventTypes.forceFlam, eventTypes.kick2x,
+			eventTypes.discoFlipOff, eventTypes.discoFlipOn, eventTypes.discoNoFlipOn,
+			eventTypes.enableChartDynamics,
+		])
+
+		// Extract base notes
+		const notes: MoonNote[] = []
+		for (const ev of td.trackEvents) {
+			const rn = rawNoteMap[ev.type]
+			if (rn !== undefined) {
+				notes.push({ tick: ev.tick, rawNote: rn, length: ev.length, flags: 0 })
+			}
+			// kick2x creates a kick note (rawNote=0) with doubleKick flag
+			if (ev.type === eventTypes.kick2x) {
+				notes.push({ tick: ev.tick, rawNote: 0, length: ev.length, flags: moonNoteFlags.doubleKick })
+			}
+		}
+
+		// Build tick → notes index
+		const notesByTick = new Map<number, MoonNote[]>()
+		for (const n of notes) {
+			let arr = notesByTick.get(n.tick)
+			if (!arr) { arr = []; notesByTick.set(n.tick, arr) }
+			arr.push(n)
+		}
+
+		// Apply modifier events as flags
+		for (const ev of td.trackEvents) {
+			if (!modifierTypes.has(ev.type)) continue
+			const notesAtTick = notesByTick.get(ev.tick)
+			if (!notesAtTick) continue
+
+			switch (ev.type) {
+				// Guitar/GHL modifiers — apply to all notes at tick
+				case eventTypes.forceOpen:
+					for (const n of notesAtTick) n.rawNote = 0
+					break
+				case eventTypes.forceTap:
+					for (const n of notesAtTick) n.flags |= moonNoteFlags.tap
+					break
+				case eventTypes.forceStrum:
+					for (const n of notesAtTick) n.flags |= moonNoteFlags.forcedStrum
+					break
+				case eventTypes.forceHopo:
+					for (const n of notesAtTick) n.flags |= moonNoteFlags.forcedHopo
+					break
+				case eventTypes.forceUnnatural:
+					// .chart "force" → MoonNote Forced flag
+					for (const n of notesAtTick) n.flags |= moonNoteFlags.forced
+					break
+
+				// Drum per-pad modifiers
+				case eventTypes.kick2x:
+					for (const n of notesAtTick) { if (n.rawNote === 0) n.flags |= moonNoteFlags.doubleKick }
+					break
+				case eventTypes.kickAccent:
+					for (const n of notesAtTick) { if (n.rawNote === 0) n.flags |= moonNoteFlags.proDrumsAccent }
+					break
+				case eventTypes.redAccent:
+					for (const n of notesAtTick) { if (n.rawNote === 1) n.flags |= moonNoteFlags.proDrumsAccent }
+					break
+				case eventTypes.yellowAccent:
+					for (const n of notesAtTick) { if (n.rawNote === 2) n.flags |= moonNoteFlags.proDrumsAccent }
+					break
+				case eventTypes.blueAccent:
+					for (const n of notesAtTick) { if (n.rawNote === 3) n.flags |= moonNoteFlags.proDrumsAccent }
+					break
+				case eventTypes.fiveOrangeFourGreenAccent:
+					for (const n of notesAtTick) { if (n.rawNote === 4) n.flags |= moonNoteFlags.proDrumsAccent }
+					break
+				case eventTypes.fiveGreenAccent:
+					for (const n of notesAtTick) { if (n.rawNote === 5) n.flags |= moonNoteFlags.proDrumsAccent }
+					break
+				case eventTypes.kickGhost:
+					for (const n of notesAtTick) { if (n.rawNote === 0) n.flags |= moonNoteFlags.proDrumsGhost }
+					break
+				case eventTypes.redGhost:
+					for (const n of notesAtTick) { if (n.rawNote === 1) n.flags |= moonNoteFlags.proDrumsGhost }
+					break
+				case eventTypes.yellowGhost:
+					for (const n of notesAtTick) { if (n.rawNote === 2) n.flags |= moonNoteFlags.proDrumsGhost }
+					break
+				case eventTypes.blueGhost:
+					for (const n of notesAtTick) { if (n.rawNote === 3) n.flags |= moonNoteFlags.proDrumsGhost }
+					break
+				case eventTypes.fiveOrangeFourGreenGhost:
+					for (const n of notesAtTick) { if (n.rawNote === 4) n.flags |= moonNoteFlags.proDrumsGhost }
+					break
+				case eventTypes.fiveGreenGhost:
+					for (const n of notesAtTick) { if (n.rawNote === 5) n.flags |= moonNoteFlags.proDrumsGhost }
+					break
+
+				// Cymbal markers (.chart) — set cymbal flag on specific pad
+				case eventTypes.yellowCymbalMarker:
+					for (const n of notesAtTick) { if (n.rawNote === 2) n.flags |= moonNoteFlags.proDrumsCymbal }
+					break
+				case eventTypes.blueCymbalMarker:
+					for (const n of notesAtTick) { if (n.rawNote === 3) n.flags |= moonNoteFlags.proDrumsCymbal }
+					break
+				case eventTypes.greenCymbalMarker:
+					for (const n of notesAtTick) { if (n.rawNote === 4) n.flags |= moonNoteFlags.proDrumsCymbal }
+					break
+
+				// Tom markers (.mid) — in MoonSong, cymbal is default; tom marker CLEARS it
+				// The old parser already split tom marker sustains into per-note events.
+				// Since we set cymbal by default below, presence of tom marker should clear it.
+				case eventTypes.yellowTomMarker:
+					for (const n of notesAtTick) { if (n.rawNote === 2) n.flags &= ~moonNoteFlags.proDrumsCymbal }
+					break
+				case eventTypes.blueTomMarker:
+					for (const n of notesAtTick) { if (n.rawNote === 3) n.flags &= ~moonNoteFlags.proDrumsCymbal }
+					break
+				case eventTypes.greenTomMarker:
+					for (const n of notesAtTick) { if (n.rawNote === 4 || n.rawNote === 5) n.flags &= ~moonNoteFlags.proDrumsCymbal }
+					break
+			}
+		}
+
+		// For MIDI drums: set default cymbal on yellow(2)/blue(3)/orange(4)
+		// Then tom markers (already applied above) clear it.
+		// Note: This must happen BEFORE tom markers are applied. Since we just applied tom
+		// markers above which clear the flag, we need to set the default first then re-clear.
+		// Let's restructure: set default, then re-apply tom markers.
+		if (isDrums) {
+			for (const n of notes) {
+				if (n.rawNote === 2 || n.rawNote === 3 || n.rawNote === 4) {
+					n.flags |= moonNoteFlags.proDrumsCymbal
+				}
+			}
+			// Re-apply tom markers to clear cymbal
+			for (const ev of td.trackEvents) {
+				if (ev.type === eventTypes.yellowTomMarker || ev.type === eventTypes.blueTomMarker || ev.type === eventTypes.greenTomMarker) {
+					const notesAtTick = notesByTick.get(ev.tick)
+					if (!notesAtTick) continue
+					if (ev.type === eventTypes.yellowTomMarker) {
+						for (const n of notesAtTick) { if (n.rawNote === 2) n.flags &= ~moonNoteFlags.proDrumsCymbal }
+					} else if (ev.type === eventTypes.blueTomMarker) {
+						for (const n of notesAtTick) { if (n.rawNote === 3) n.flags &= ~moonNoteFlags.proDrumsCymbal }
+					} else if (ev.type === eventTypes.greenTomMarker) {
+						for (const n of notesAtTick) { if (n.rawNote === 4 || n.rawNote === 5) n.flags &= ~moonNoteFlags.proDrumsCymbal }
+					}
+				}
+			}
+		}
+
+		// Build phrases from the old separate arrays + additional MIDI phrases
+		const phrases: MoonPhrase[] = []
+		for (const sp of td.starPowerSections) {
+			phrases.push({ tick: sp.tick, length: sp.length, type: phraseTypes.starpower })
+		}
+		for (const solo of td.soloSections) {
+			phrases.push({ tick: solo.tick, length: solo.length, type: phraseTypes.solo })
+		}
+		for (const fl of td.flexLanes) {
+			phrases.push({ tick: fl.tick, length: fl.length, type: fl.isDouble ? phraseTypes.trillLane : phraseTypes.tremoloLane })
+		}
+		for (const fs of td.drumFreestyleSections) {
+			phrases.push({ tick: fs.tick, length: fs.length, type: phraseTypes.proDrumsActivation })
+		}
+
+		// Collect additional phrases from MIDI that the old model doesn't capture:
+		// - Drum fills 121-124 (old parser only tracks 120)
+		// - Versus phrases (notes 105-106)
+		{
+			const phraseTrackNames = _.keys(_.pickBy(instrumentNameMap, v => v === td.instrument))
+			const midiTrack = midiTracks.find(t => phraseTrackNames.includes(t.trackName))
+			if (midiTrack) {
+				// MIDI phrase notes to PhraseType
+				const midiPhraseMappings: Record<number, PhraseType> = {
+					105: phraseTypes.versusPlayer1,
+					106: phraseTypes.versusPlayer2,
+				}
+				if (isDrums) {
+					// Notes 121-124 are additional drum fill lanes
+					midiPhraseMappings[121] = phraseTypes.proDrumsActivation
+					midiPhraseMappings[122] = phraseTypes.proDrumsActivation
+					midiPhraseMappings[123] = phraseTypes.proDrumsActivation
+					midiPhraseMappings[124] = phraseTypes.proDrumsActivation
+				}
+
+				const pendingPhrases: Map<number, number> = new Map() // noteNumber → startTick
+				for (const ev of midiTrack.trackEvents) {
+					if (ev.type !== 'noteOn' && ev.type !== 'noteOff') continue
+					const noteNum = (ev as any).noteNumber as number
+					const pt = midiPhraseMappings[noteNum]
+					if (pt === undefined) continue
+
+					const isNoteOn = ev.type === 'noteOn' && (ev as any).velocity > 0
+					if (isNoteOn) {
+						pendingPhrases.set(noteNum, ev.deltaTime)
+					} else {
+						const startTick = pendingPhrases.get(noteNum)
+						if (startTick !== undefined) {
+							phrases.push({ tick: startTick, length: ev.deltaTime - startTick, type: pt })
+							pendingPhrases.delete(noteNum)
+						}
+					}
+				}
+			}
+		}
+
+		phrases.sort((a, b) => a.tick - b.tick || a.type - b.type)
+		// Dedup phrases by tick+length+type
+		{
+			const seen = new Set<string>()
+			const deduped: MoonPhrase[] = []
+			for (const p of phrases) {
+				const key = `${p.tick}:${p.length}:${p.type}`
+				if (!seen.has(key)) { seen.add(key); deduped.push(p) }
+			}
+			phrases.length = 0
+			phrases.push(...deduped)
+		}
+
+		// Collect per-track text events from MIDI
+		const textEvents: { tick: number; text: string }[] = []
+		// Find the matching MIDI track — instrument may map to multiple track names (e.g. 'T1 GEMS' and 'PART GUITAR')
+		const trackNamesForInstrument = _.keys(_.pickBy(instrumentNameMap, v => v === td.instrument))
+		{
+			const midiTrack = midiTracks.find(t => trackNamesForInstrument.includes(t.trackName))
+			if (midiTrack) {
+				for (const ev of midiTrack.trackEvents) {
+					if (ev.type === 'text') {
+						const text = (ev as MidiTextEvent).text.trim()
+						// Skip control text events that are handled elsewhere
+						if (text === 'ENHANCED_OPENS' || text === '[ENHANCED_OPENS]') continue
+						if (text === 'ENABLE_CHART_DYNAMICS' || text === '[ENABLE_CHART_DYNAMICS]') continue
+						textEvents.push({ tick: ev.deltaTime, text })
+					}
+				}
+			}
+		}
+
+		// Tap overrides hopo/strum forcing (MoonSong behavior)
+		for (const n of notes) {
+			if (n.flags & moonNoteFlags.tap) {
+				n.flags &= ~(moonNoteFlags.forcedHopo | moonNoteFlags.forcedStrum | moonNoteFlags.forced)
+			}
+		}
+
+		// Sort notes
+		notes.sort((a, b) => a.tick - b.tick || a.rawNote - b.rawNote)
+
+		results.push({
+			instrument: moonInst,
+			difficulty: td.difficulty,
+			gameMode: gm,
+			notes,
+			phrases,
+			textEvents,
+			animations: [],
+		})
+	}
+
+	return results
+}
 
 interface TrackEventEnd {
 	tick: number
@@ -137,6 +485,89 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 			?.trackEvents.filter(e => e.type === 'text' && (e.text.trim() === 'coda' || e.text.trim() === '[coda]')) ?? []
 	const firstCodaTick = codaEvents[0] ? codaEvents[0].deltaTime : null
 
+	// Compute trackData before return so we can derive tracks[] from it
+	const computedTrackData = _.chain(tracks)
+		.filter(t => _.keys(instrumentNameMap).includes(t.trackName))
+		.uniqBy('trackName')
+		.map(t => {
+			const instrument = instrumentNameMap[t.trackName as InstrumentTrackName]
+			const instrumentType = getInstrumentType(instrument)
+			const preSplit = _.chain(t.trackEvents)
+				.thru(trackEvents => getTrackEventEnds(trackEvents, instrumentType))
+				.thru(eventEnds => distributeInstrumentEvents(eventEnds))
+				.thru(eventEnds => getTrackEvents(eventEnds))
+				.value()
+
+			const modSustainTypes: EventType[] =
+				instrumentType === instrumentTypes.drums ?
+					[eventTypes.forceFlam, eventTypes.yellowTomMarker, eventTypes.blueTomMarker, eventTypes.greenTomMarker]
+				:	[eventTypes.forceOpen, eventTypes.forceTap, eventTypes.forceStrum, eventTypes.forceHopo]
+			const modSustainsByDiff: { [key in Difficulty]?: { tick: number; length: number; type: EventType }[] } = {}
+			for (const d of difficulties) {
+				modSustainsByDiff[d] = preSplit[d]
+					.filter(e => modSustainTypes.includes(e.type))
+					.map(e => ({ tick: e.tick, length: e.length, type: e.type }))
+			}
+
+			const trackDifficulties = _.chain(preSplit)
+				.thru(events => splitMidiModifierSustains(events, instrumentType))
+				.thru(events => fixLegacyGhStarPower(events, instrumentType, iniChartModifiers))
+				.thru(events => fixFlexLaneLds(events))
+				.value()
+
+			return difficulties.map(difficulty => {
+				const result: RawChartData['trackData'][number] = {
+					instrument,
+					difficulty,
+					starPowerSections: [],
+					rejectedStarPowerSections: [],
+					soloSections: [],
+					flexLanes: [],
+					drumFreestyleSections: [],
+					modifierSustains: modSustainsByDiff[difficulty] ?? [],
+					trackEvents: [],
+				}
+
+				for (const event of trackDifficulties[difficulty]) {
+					if (event.type === eventTypes.starPower) {
+						result.starPowerSections.push(event)
+					} else if (event.type === eventTypes.rejectedStarPower) {
+						result.rejectedStarPowerSections.push(event)
+					} else if (event.type === eventTypes.soloSection) {
+						result.soloSections.push(event)
+					} else if (event.type === eventTypes.flexLaneSingle || event.type === eventTypes.flexLaneDouble) {
+						result.flexLanes.push({
+							tick: event.tick,
+							length: event.length,
+							isDouble: event.type === eventTypes.flexLaneDouble,
+						})
+					} else if (event.type === eventTypes.freestyleSection) {
+						result.drumFreestyleSections.push({
+							tick: event.tick,
+							length: event.length,
+							isCoda: firstCodaTick === null ? false : event.tick >= firstCodaTick,
+						})
+					} else {
+						result.trackEvents.push(event)
+					}
+				}
+
+				return result
+			})
+		})
+		.flatMap()
+		.filter(track => track.trackEvents.length > 0)
+		.map(track => {
+			track.trackEvents = dedupByTickType(track.trackEvents)
+			track.trackEvents = removeOrphanedAccentGhost(track.trackEvents)
+			track.starPowerSections = dedupByTickLen(track.starPowerSections)
+			track.soloSections = dedupByTickLen(track.soloSections)
+			track.drumFreestyleSections = dedupByTickLen(track.drumFreestyleSections)
+			track.flexLanes = dedupByTickLen(track.flexLanes)
+			return track
+		})
+		.value()
+
 	return {
 		chartTicksPerBeat: midiFile.header.ticksPerBeat,
 		metadata: {}, // .mid does not have a mechanism for storing song metadata
@@ -208,61 +639,21 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 				tick: e.deltaTime,
 			}))
 			.value(),
-		trackData: _.chain(tracks)
-			.filter(t => _.keys(instrumentNameMap).includes(t.trackName))
-			.map(t => {
-				const instrument = instrumentNameMap[t.trackName as InstrumentTrackName]
-				const instrumentType = getInstrumentType(instrument)
-				const trackDifficulties = _.chain(t.trackEvents)
-					.thru(trackEvents => getTrackEventEnds(trackEvents, instrumentType))
-					.thru(eventEnds => distributeInstrumentEvents(eventEnds)) // Removes 'all' difficulty
-					.thru(eventEnds => getTrackEvents(eventEnds)) // Connects note ends together
-					.thru(events => splitMidiModifierSustains(events, instrumentType))
-					.thru(events => fixLegacyGhStarPower(events, instrumentType, iniChartModifiers))
-					.thru(events => fixFlexLaneLds(events))
-					.value()
-
-				return difficulties.map(difficulty => {
-					const result: RawChartData['trackData'][number] = {
-						instrument,
-						difficulty,
-						starPowerSections: [],
-						rejectedStarPowerSections: [],
-						soloSections: [],
-						flexLanes: [],
-						drumFreestyleSections: [],
-						trackEvents: [],
-					}
-
-					for (const event of trackDifficulties[difficulty]) {
-						if (event.type === eventTypes.starPower) {
-							result.starPowerSections.push(event)
-						} else if (event.type === eventTypes.rejectedStarPower) {
-							result.rejectedStarPowerSections.push(event)
-						} else if (event.type === eventTypes.soloSection) {
-							result.soloSections.push(event)
-						} else if (event.type === eventTypes.flexLaneSingle || event.type === eventTypes.flexLaneDouble) {
-							result.flexLanes.push({
-								tick: event.tick,
-								length: event.length,
-								isDouble: event.type === eventTypes.flexLaneDouble,
-							})
-						} else if (event.type === eventTypes.freestyleSection) {
-							result.drumFreestyleSections.push({
-								tick: event.tick,
-								length: event.length,
-								isCoda: firstCodaTick === null ? false : event.tick >= firstCodaTick,
-							})
-						} else {
-							result.trackEvents.push(event)
-						}
-					}
-
-					return result
-				})
+		trackData: computedTrackData,
+		// ── MoonSong-aligned fields (plan 0029) ──
+		tracks: trackDataToMoonTracks(computedTrackData, tracks),
+		globalEvents: _.chain(tracks)
+			.find(t => t.trackName === 'EVENTS')
+			.get('trackEvents')
+			.filter((e): e is MidiTextEvent => {
+				if (e.type !== 'text') return false
+				const text = (e as MidiTextEvent).text.trim()
+				if (/^\[?(?:section|prc)[ _]/.test(text)) return false
+				if (/^\[?end\]?$/.test(text)) return false
+				if (/^\[?coda\]?$/.test(text)) return false
+				return true
 			})
-			.flatMap()
-			.filter(track => track.trackEvents.length > 0)
+			.map(e => ({ tick: e.deltaTime, text: e.text.trim() }))
 			.value(),
 		midiTrackOrder,
 		midiTempoTrack,

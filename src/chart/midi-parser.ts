@@ -155,7 +155,8 @@ function trackDataToMoonTracks(
 		// Dedup notes at same tick+rawNote BEFORE applying modifiers.
 		// MoonSong deduplicates during initial insertion (InsertionEquals by tick+rawNote).
 		// ForceOpen later creates new duplicates (chord → all rawNote=0) that are preserved.
-		notes.sort((a, b) => a.tick - b.tick || a.rawNote - b.rawNote || a.flags - b.flags)
+		// No flags tiebreaker — preserve MIDI event order (trackEvents order mirrors MIDI file).
+		notes.sort((a, b) => a.tick - b.tick || a.rawNote - b.rawNote)
 		{
 			const deduped: MoonNote[] = []
 			for (const n of notes) {

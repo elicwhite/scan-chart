@@ -199,7 +199,8 @@ function buildMoonTrack(
 			}
 			case 'E': {
 				if (value === 'solo') {
-					soloStartTick = tick
+					// First solo_start wins; subsequent ones before soloend are ignored (YARG behavior)
+					if (soloStartTick === null) soloStartTick = tick
 				} else if (value === 'soloend') {
 					if (soloStartTick !== null) {
 						// .chart solos have inclusive ends — add 1 to length to match MoonSong

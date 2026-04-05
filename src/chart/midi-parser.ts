@@ -897,9 +897,14 @@ function getTrackEventEnds(events: MidiEvent[], instrumentType: InstrumentType) 
 				}
 			}
 
-			if (event.text === 'ENHANCED_OPENS' || event.text === '[ENHANCED_OPENS]') {
+			// Normalize: trim and strip brackets (matching YARG's NormalizeTextEvent)
+			let normalizedControl = event.text.trim()
+			const ctrlBs = normalizedControl.indexOf('['), ctrlBe = normalizedControl.indexOf(']')
+			if (ctrlBs >= 0 && ctrlBe > ctrlBs) normalizedControl = normalizedControl.slice(ctrlBs + 1, ctrlBe).trim()
+
+			if (normalizedControl === 'ENHANCED_OPENS') {
 				enhancedOpens = true
-			} else if (event.text === 'ENABLE_CHART_DYNAMICS' || event.text === '[ENABLE_CHART_DYNAMICS]') {
+			} else if (normalizedControl === 'ENABLE_CHART_DYNAMICS') {
 				// Treat this like the other events that have a start and end, so it can be processed the same way later
 				trackEventEnds['all'].push({ tick: event.deltaTime, type: eventTypes.enableChartDynamics, channel: 1, isStart: true, velocity: 127 })
 				trackEventEnds['all'].push({ tick: event.deltaTime, type: eventTypes.enableChartDynamics, channel: 1, isStart: false, velocity: 127 })

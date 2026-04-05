@@ -152,6 +152,21 @@ function trackDataToMoonTracks(
 			}
 		}
 
+		// Dedup notes at same tick+rawNote BEFORE applying modifiers.
+		// MoonSong deduplicates during initial insertion (InsertionEquals by tick+rawNote).
+		// ForceOpen later creates new duplicates (chord → all rawNote=0) that are preserved.
+		notes.sort((a, b) => a.tick - b.tick || a.rawNote - b.rawNote || a.flags - b.flags)
+		{
+			const deduped: MoonNote[] = []
+			for (const n of notes) {
+				const prev = deduped[deduped.length - 1]
+				if (prev && prev.tick === n.tick && prev.rawNote === n.rawNote) continue
+				deduped.push(n)
+			}
+			notes.length = 0
+			notes.push(...deduped)
+		}
+
 		// Build tick → notes index
 		const notesByTick = new Map<number, MoonNote[]>()
 		for (const n of notes) {
@@ -429,26 +444,9 @@ function trackDataToMoonTracks(
 			textEvents.push(...deduped)
 		}
 
-		// Sort notes and dedup at same tick+rawNote.
-		// For same tick+rawNote, sort by flags ascending so regular kick (flags=0) comes before
-		// kick2x (doubleKick=128). MoonSong's InsertionEquals keeps the first insertion; when both
-		// kick and kick2x exist at the same tick, the MIDI stream order determines which is first.
-		// Regular kick typically appears first in most chart files.
-		notes.sort((a, b) => a.tick - b.tick || a.rawNote - b.rawNote || a.flags - b.flags)
-		// Dedup notes at same tick+rawNote — MoonSong keeps the first insertion, discards duplicates
-		{
-			const merged: MoonNote[] = []
-			for (const n of notes) {
-				const prev = merged[merged.length - 1]
-				if (prev && prev.tick === n.tick && prev.rawNote === n.rawNote) {
-					// Discard duplicate (MoonSong's InsertionEquals drops the second one)
-					continue
-				}
-				merged.push(n)
-			}
-			notes.length = 0
-			notes.push(...merged)
-		}
+		// Final sort — don't dedup here since forceOpen may have created valid
+		// duplicate rawNote=0 entries at the same tick (chord → all open).
+		notes.sort((a, b) => a.tick - b.tick || a.rawNote - b.rawNote)
 
 		results.push({
 			instrument: moonInst,

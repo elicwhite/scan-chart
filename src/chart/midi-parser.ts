@@ -729,6 +729,8 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 				return { tick: e.deltaTime, name }
 			})
 			.compact()
+			// Sort by tick then name (MoonSong's InsertionCompareTo sorts by tick then text)
+			.sortBy(['tick', 'name'])
 			.value(),
 		endEvents: _.chain(tracks)
 			.find(t => t.trackName === 'EVENTS')

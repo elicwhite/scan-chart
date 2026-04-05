@@ -243,44 +243,44 @@ function trackDataToMoonTracks(
 					for (const n of notesAtTick) { if (n.rawNote === 4) n.flags |= moonNoteFlags.proDrumsCymbal }
 					break
 
-				// Tom markers (.mid) — in MoonSong, cymbal is default; tom marker CLEARS it
-				// The old parser already split tom marker sustains into per-note events.
-				// Since we set cymbal by default below, presence of tom marker should clear it.
+				// Tom markers (.mid) — handled below via modifierSustains XOR toggle
 				case eventTypes.yellowTomMarker:
-					for (const n of notesAtTick) { if (n.rawNote === 2) n.flags &= ~moonNoteFlags.proDrumsCymbal }
-					break
 				case eventTypes.blueTomMarker:
-					for (const n of notesAtTick) { if (n.rawNote === 3) n.flags &= ~moonNoteFlags.proDrumsCymbal }
-					break
 				case eventTypes.greenTomMarker:
-					// MIDI 112 → Orange (rawNote 4) only, NOT Green (rawNote 5)
-					for (const n of notesAtTick) { if (n.rawNote === 4) n.flags &= ~moonNoteFlags.proDrumsCymbal }
 					break
 			}
 		}
 
-		// For MIDI drums: set default cymbal on yellow(2)/blue(3)/orange(4)
-		// Then tom markers (already applied above) clear it.
-		// Note: This must happen BEFORE tom markers are applied. Since we just applied tom
-		// markers above which clear the flag, we need to set the default first then re-clear.
-		// Let's restructure: set default, then re-apply tom markers.
+		// For MIDI drums: set default cymbal on yellow(2)/blue(3)/orange(4),
+		// then XOR-toggle with raw tom marker sustains from modifierSustains.
+		// YARG uses XOR toggle (ProcessNoteOnEventAsFlagToggle), so overlapping
+		// sustains at the same tick cancel out. The old approach of clearing
+		// cymbal from zero-length events couldn't handle this; we use the raw
+		// sustains and toggle to match YARG exactly.
 		if (isDrums) {
 			for (const n of notes) {
 				if (n.rawNote === 2 || n.rawNote === 3 || n.rawNote === 4) {
 					n.flags |= moonNoteFlags.proDrumsCymbal
 				}
 			}
-			// Re-apply tom markers to clear cymbal
-			for (const ev of td.trackEvents) {
-				if (ev.type === eventTypes.yellowTomMarker || ev.type === eventTypes.blueTomMarker || ev.type === eventTypes.greenTomMarker) {
-					const notesAtTick = notesByTick.get(ev.tick)
-					if (!notesAtTick) continue
-					if (ev.type === eventTypes.yellowTomMarker) {
-						for (const n of notesAtTick) { if (n.rawNote === 2) n.flags &= ~moonNoteFlags.proDrumsCymbal }
-					} else if (ev.type === eventTypes.blueTomMarker) {
-						for (const n of notesAtTick) { if (n.rawNote === 3) n.flags &= ~moonNoteFlags.proDrumsCymbal }
-					} else if (ev.type === eventTypes.greenTomMarker) {
-						for (const n of notesAtTick) { if (n.rawNote === 4) n.flags &= ~moonNoteFlags.proDrumsCymbal }
+
+			// XOR toggle cymbal from raw tom marker sustains (matches YARG)
+			const tomSustains = td.modifierSustains.filter(
+				m => m.type === eventTypes.yellowTomMarker ||
+					m.type === eventTypes.blueTomMarker ||
+					m.type === eventTypes.greenTomMarker,
+			)
+			for (const mod of tomSustains) {
+				const rawNote =
+					mod.type === eventTypes.yellowTomMarker ? 2
+					: mod.type === eventTypes.blueTomMarker ? 3
+					: 4 // greenTomMarker → orange (rawNote 4)
+				// YARG excludes the last tick: endTick-- when endTick > startTick
+				let endTick = mod.tick + mod.length
+				if (endTick > mod.tick) endTick--
+				for (const n of notes) {
+					if (n.rawNote === rawNote && n.tick >= mod.tick && n.tick <= endTick) {
+						n.flags ^= moonNoteFlags.proDrumsCymbal
 					}
 				}
 			}
@@ -559,9 +559,14 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 	const firstCodaTick = codaEvents[0] ? codaEvents[0].deltaTime : null
 
 	// Compute trackData before return so we can derive tracks[] from it
+	// For duplicate track names (e.g. two PART DRUMS tracks), keep the LAST one.
+	// YARG/MoonSong overwrites when TrackOverrides allows it, which for standard
+	// instruments means the last track wins. Reverse before uniqBy to achieve this.
 	const computedTrackData = _.chain(tracks)
 		.filter(t => _.keys(instrumentNameMap).includes(t.trackName))
+		.reverse()
 		.uniqBy('trackName')
+		.reverse()
 		.map(t => {
 			const instrument = instrumentNameMap[t.trackName as InstrumentTrackName]
 			const instrumentType = getInstrumentType(instrument)
@@ -1052,6 +1057,13 @@ function getTrackEvents(trackEventEnds: { [key in Difficulty]: TrackEventEnd[] }
 		for (const trackEventEnd of trackEventEnds[difficulty]) {
 			const partialTrackEvents = partialTrackEventsMap[trackEventEnd.type]
 			if (trackEventEnd.isStart) {
+				// Discard duplicate note-on when an unpaired event of the same type+channel
+				// already exists. YARG/MoonSong does the same (MidReader.ProcessNoteEvent).
+				const isDuplicate = partialTrackEvents.some(
+					e => e.channel === trackEventEnd.channel,
+				)
+				if (isDuplicate) continue
+
 				const partialTrackEvent: MidiTrackEvent = {
 					tick: trackEventEnd.tick,
 					length: -1, // Represents that this is a partial track event (an end event has not been found for this yet)

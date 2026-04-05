@@ -377,12 +377,10 @@ function trackDataToMoonTracks(
 			}
 		}
 
-		// Tap overrides hopo/strum forcing (MoonSong behavior)
-		for (const n of notes) {
-			if (n.flags & moonNoteFlags.tap) {
-				n.flags &= ~(moonNoteFlags.forcedHopo | moonNoteFlags.forcedStrum | moonNoteFlags.forced)
-			}
-		}
+		// MoonSong behavior: SysEx tap clears hopo/strum (it runs first via sysexProcessList);
+		// Note 104 tap keeps hopo/strum (it runs after via forcingProcessList).
+		// Since we can't distinguish the source in trackData, we don't clear hopo/strum here.
+		// The 'forced' flag (bit 0) is already excluded from comparison as it's derived.
 
 		// Dedup text events by tick+text (MoonSong deduplicates via InsertionEquals)
 		{

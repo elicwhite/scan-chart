@@ -427,9 +427,11 @@ function trackDataToMoonTracks(
 		}
 
 		// Sort notes and dedup at same tick+rawNote.
-		// For same tick+rawNote, sort by flags descending so kick2x (doubleKick=128) comes before
-		// regular kick (flags=0), matching MoonSong's insertion order (lower MIDI note first).
-		notes.sort((a, b) => a.tick - b.tick || a.rawNote - b.rawNote || b.flags - a.flags)
+		// For same tick+rawNote, sort by flags ascending so regular kick (flags=0) comes before
+		// kick2x (doubleKick=128). MoonSong's InsertionEquals keeps the first insertion; when both
+		// kick and kick2x exist at the same tick, the MIDI stream order determines which is first.
+		// Regular kick typically appears first in most chart files.
+		notes.sort((a, b) => a.tick - b.tick || a.rawNote - b.rawNote || a.flags - b.flags)
 		// Dedup notes at same tick+rawNote — MoonSong keeps the first insertion, discards duplicates
 		{
 			const merged: MoonNote[] = []

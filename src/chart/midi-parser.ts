@@ -529,23 +529,28 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 		midiTrackOrder.push(trackKey)
 		// Save raw delta-time events for all non-tempo tracks.
 		if (idx > 0) {
-			// Already in delta-time format (before convertToAbsoluteTime).
 			// Strip `running` (parser artifact) and fix corrupted negative deltas
 			// by converting to absolute time, sorting, and converting back.
+			// Shallow-clone event objects to avoid mutating the originals (which
+			// are shared with midiFile.tracks and later modified by convertToAbsoluteTime).
+			const cloned = track.map(e => {
+				const c = Object.assign({}, e)
+				delete (c as any).running
+				return c
+			})
 			let absTick = 0
-			const absEvents = track.map(e => {
+			for (const e of cloned) {
 				absTick += e.deltaTime
-				const { running: _, ...rest } = e as MidiEvent & { running?: boolean }
-				return { ...rest, _absTick: absTick }
-			})
-			absEvents.sort((a, b) => a._absTick - b._absTick)
+				e.deltaTime = absTick // temporarily store absolute time
+			}
+			cloned.sort((a, b) => a.deltaTime - b.deltaTime)
 			let prevTick = 0
-			midiInstrumentTracks[trackKey] = absEvents.map(e => {
-				const delta = Math.max(0, e._absTick - prevTick)
-				prevTick = e._absTick
-				const { _absTick, ...rest } = e as any
-				return { ...rest, deltaTime: delta }
-			})
+			for (const e of cloned) {
+				const abs = e.deltaTime
+				e.deltaTime = Math.max(0, abs - prevTick)
+				prevTick = abs
+			}
+			midiInstrumentTracks[trackKey] = cloned
 		}
 	}
 
@@ -709,9 +714,11 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 				}
 			})
 			.value(),
+		// Merge sections from ALL EVENTS tracks (some MIDIs have duplicate EVENTS tracks;
+		// MoonSong processes all of them via foreach, accumulating sections from each)
 		sections: _.chain(tracks)
-			.find(t => t.trackName === 'EVENTS')
-			.get('trackEvents')
+			.filter(t => t.trackName === 'EVENTS')
+			.flatMap(t => t.trackEvents)
 			// MoonSong reads sections from all text event types (text, lyrics, marker, cuePoint)
 			.filter((e): e is MidiTextEvent => e.type === 'text' || e.type === 'lyrics' || e.type === 'marker' || e.type === 'cuePoint')
 			.map(e => {
@@ -736,6 +743,8 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 			.compact()
 			// Sort by tick then name (MoonSong's InsertionCompareTo sorts by tick then text)
 			.sortBy(['tick', 'name'])
+			// Dedup by tick+name (MoonSong's InsertionEquals)
+			.uniqBy(s => `${s.tick}:${s.name}`)
 			.value(),
 		endEvents: _.chain(tracks)
 			.find(t => t.trackName === 'EVENTS')
@@ -866,6 +875,21 @@ function convertToAbsoluteTime(midiData: MidiData) {
 			event.deltaTime = currentTick
 		}
 	}
+}
+
+/** Convert absolute-time events back to delta-time for storage/writing. Mutates in place. */
+function convertToDeltaTime(events: MidiEvent[]): MidiEvent[] {
+	// Sort by absolute time — some MIDI files have corrupted negative delta times
+	// that produce non-monotonic absolute times. Sorting ensures valid output.
+	events.sort((a, b) => a.deltaTime - b.deltaTime)
+	let prevTick = 0
+	for (const event of events) {
+		delete (event as any).running
+		const abs = event.deltaTime
+		event.deltaTime = abs - prevTick
+		prevTick = abs
+	}
+	return events
 }
 
 function getTracks(midiData: MidiData) {

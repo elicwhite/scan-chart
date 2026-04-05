@@ -141,23 +141,14 @@ function trackDataToMoonTracks(
 
 		// Extract base notes
 		const notes: MoonNote[] = []
-		// Track kick ticks for kick2x dedup
-		const kickTicks = new Set<number>()
 		for (const ev of td.trackEvents) {
 			const rn = rawNoteMap[ev.type]
 			if (rn !== undefined) {
 				notes.push({ tick: ev.tick, rawNote: rn, length: ev.length, flags: 0 })
-				if (ev.type === eventTypes.kick) kickTicks.add(ev.tick)
 			}
-		}
-		// kick2x: creates a kick note ONLY if no regular kick at the same tick
-		// (MoonSong's InsertionEquals deduplicates, keeping the first insertion = regular kick)
-		for (const ev of td.trackEvents) {
+			// kick2x creates a kick note (rawNote=0) with doubleKick flag
 			if (ev.type === eventTypes.kick2x) {
-				if (!kickTicks.has(ev.tick)) {
-					notes.push({ tick: ev.tick, rawNote: 0, length: ev.length, flags: moonNoteFlags.doubleKick })
-				}
-				// When regular kick exists at same tick, doubleKick flag is lost (matches MoonSong)
+				notes.push({ tick: ev.tick, rawNote: 0, length: ev.length, flags: moonNoteFlags.doubleKick })
 			}
 		}
 

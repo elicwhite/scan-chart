@@ -155,7 +155,9 @@ function trackDataToMoonTracks(
 		// Dedup notes at same tick+rawNote BEFORE applying modifiers.
 		// MoonSong deduplicates during initial insertion (InsertionEquals by tick+rawNote).
 		// ForceOpen later creates new duplicates (chord → all rawNote=0) that are preserved.
-		// No flags tiebreaker — preserve MIDI event order (trackEvents order mirrors MIDI file).
+		// No flags tiebreaker — preserve trackEvents order (type-descending from old parser).
+		// This puts kick2x (type 18) before kick (type 17), matching standard MIDI note order
+		// (note 95 before 96). Some charts have the opposite order; these are structural diffs.
 		notes.sort((a, b) => a.tick - b.tick || a.rawNote - b.rawNote)
 		{
 			const deduped: MoonNote[] = []
@@ -429,8 +431,7 @@ function trackDataToMoonTracks(
 		}
 
 		// SysEx tap clears hopo/strum (runs first via sysexProcessList in YARG).
-		// Note 104 tap keeps hopo/strum (runs after via forcingProcessList), but this is rare.
-		// We clear hopo/strum since SysEx tap is the dominant source.
+		// Note-104 tap keeps hopo/strum (runs after), but SysEx is overwhelmingly dominant.
 		for (const n of notes) {
 			if (n.flags & moonNoteFlags.tap) {
 				n.flags &= ~(moonNoteFlags.forcedHopo | moonNoteFlags.forcedStrum | moonNoteFlags.forced)

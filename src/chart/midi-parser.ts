@@ -177,13 +177,13 @@ function trackDataToMoonTracks(
 				case eventTypes.forceStrum:
 					for (const n of notesAtTick) {
 						n.flags |= moonNoteFlags.forcedStrum
-						n.flags &= ~moonNoteFlags.forcedHopo  // Strum clears hopo (YARG behavior)
+						n.flags &= ~moonNoteFlags.forcedHopo
 					}
 					break
 				case eventTypes.forceHopo:
 					for (const n of notesAtTick) {
 						n.flags |= moonNoteFlags.forcedHopo
-						n.flags &= ~moonNoteFlags.forcedStrum  // Hopo clears strum (YARG behavior)
+						n.flags &= ~moonNoteFlags.forcedStrum
 					}
 					break
 				case eventTypes.forceUnnatural:

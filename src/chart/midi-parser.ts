@@ -343,12 +343,12 @@ function trackDataToMoonTracks(
 		}
 
 		phrases.sort((a, b) => a.tick - b.tick || a.type - b.type)
-		// Dedup phrases by tick+length+type
+		// Dedup phrases by tick+type (MoonSong's InsertionEquals compares tick + classID, not length)
 		{
 			const seen = new Set<string>()
 			const deduped: MoonPhrase[] = []
 			for (const p of phrases) {
-				const key = `${p.tick}:${p.length}:${p.type}`
+				const key = `${p.tick}:${p.type}`
 				if (!seen.has(key)) { seen.add(key); deduped.push(p) }
 			}
 			phrases.length = 0

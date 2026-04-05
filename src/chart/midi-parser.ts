@@ -253,7 +253,8 @@ function trackDataToMoonTracks(
 					for (const n of notesAtTick) { if (n.rawNote === 3) n.flags &= ~moonNoteFlags.proDrumsCymbal }
 					break
 				case eventTypes.greenTomMarker:
-					for (const n of notesAtTick) { if (n.rawNote === 4 || n.rawNote === 5) n.flags &= ~moonNoteFlags.proDrumsCymbal }
+					// MIDI 112 → Orange (rawNote 4) only, NOT Green (rawNote 5)
+					for (const n of notesAtTick) { if (n.rawNote === 4) n.flags &= ~moonNoteFlags.proDrumsCymbal }
 					break
 			}
 		}
@@ -279,7 +280,7 @@ function trackDataToMoonTracks(
 					} else if (ev.type === eventTypes.blueTomMarker) {
 						for (const n of notesAtTick) { if (n.rawNote === 3) n.flags &= ~moonNoteFlags.proDrumsCymbal }
 					} else if (ev.type === eventTypes.greenTomMarker) {
-						for (const n of notesAtTick) { if (n.rawNote === 4 || n.rawNote === 5) n.flags &= ~moonNoteFlags.proDrumsCymbal }
+						for (const n of notesAtTick) { if (n.rawNote === 4) n.flags &= ~moonNoteFlags.proDrumsCymbal }
 					}
 				}
 			}

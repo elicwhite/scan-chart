@@ -171,7 +171,7 @@ function buildMoonTrack(
 	const getNMapping = isDrums ? chartNToDrumRawNote : (isGhl ? chartNToGhlRawNote : chartNToGuitarRawNote)
 
 	for (const line of lines) {
-		const match = /^(\d+) = ([A-Z]+) ([\w\s[\]"]+?)( \d+)?$/.exec(line)
+		const match = /^(\d+) = ([A-Z]+) ([\w\s[\]".-]+?)( \d+)?$/.exec(line)
 		if (!match) continue
 		const tick = Number(match[1])
 		const typeCode = match[2]
@@ -506,7 +506,7 @@ export function parseNotesFromChart(data: Uint8Array): RawChartData {
 			.map(([trackName, lines]) => {
 				const { instrument, difficulty } = trackNameMap[trackName as TrackName]
 				const trackEvents = _.chain(lines)
-					.map(line => /^(\d+) = ([A-Z]+) ([\w\s[\]]+?)( \d+)?$/.exec(line))
+					.map(line => /^(\d+) = ([A-Z]+) ([\w\s[\]".-]+?)( \d+)?$/.exec(line))
 					.compact()
 					.map(([, tickString, typeCode, value, lengthString]) => {
 						const type = getEventType(typeCode, value, instrument, difficulty)

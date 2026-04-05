@@ -224,23 +224,8 @@ function buildMoonTrack(
 		notes.push({ tick: rn.tick, rawNote: m.rawNote, length: rn.length, flags: m.defaultFlags ?? 0 })
 	}
 
-	// Sort notes by tick then rawNote
+	// Sort notes — no dedup (MoonSong keeps duplicate notes from .chart source)
 	notes.sort((a, b) => a.tick - b.tick || a.rawNote - b.rawNote)
-
-	// Dedup notes by tick+rawNote
-	{
-		const seen = new Set<string>()
-		const deduped: MoonNote[] = []
-		for (const n of notes) {
-			const key = `${n.tick}:${n.rawNote}`
-			if (!seen.has(key)) {
-				seen.add(key)
-				deduped.push(n)
-			}
-		}
-		notes.length = 0
-		notes.push(...deduped)
-	}
 
 	// Apply modifiers as flags
 	// Build tick → notes index for fast lookup

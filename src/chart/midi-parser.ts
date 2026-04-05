@@ -978,16 +978,19 @@ function getTrackEventEnds(events: MidiEvent[], instrumentType: InstrumentType) 
 					}
 				}
 			}
+		}
 
+		// Check ALL text-like event types (text, lyrics, marker, cuePoint) for control directives.
+		// MoonSong uses BaseTextEvent which matches all of these.
+		if (event.type === 'text' || event.type === 'lyrics' || event.type === 'marker' || event.type === 'cuePoint') {
 			// Normalize: trim and strip brackets (matching YARG's NormalizeTextEvent)
-			let normalizedControl = event.text.trim()
+			let normalizedControl = (event as MidiTextEvent).text.trim()
 			const ctrlBs = normalizedControl.indexOf('['), ctrlBe = normalizedControl.indexOf(']')
 			if (ctrlBs >= 0 && ctrlBe > ctrlBs) normalizedControl = normalizedControl.slice(ctrlBs + 1, ctrlBe).trim()
 
 			if (normalizedControl === 'ENHANCED_OPENS') {
 				enhancedOpens = true
 			} else if (normalizedControl === 'ENABLE_CHART_DYNAMICS') {
-				// Treat this like the other events that have a start and end, so it can be processed the same way later
 				trackEventEnds['all'].push({ tick: event.deltaTime, type: eventTypes.enableChartDynamics, channel: 1, isStart: true, velocity: 127 })
 				trackEventEnds['all'].push({ tick: event.deltaTime, type: eventTypes.enableChartDynamics, channel: 1, isStart: false, velocity: 127 })
 			}

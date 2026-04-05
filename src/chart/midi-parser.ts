@@ -310,6 +310,9 @@ function trackDataToMoonTracks(
 		for (const solo of td.soloSections) {
 			phrases.push({ tick: solo.tick, length: solo.length, type: phraseTypes.solo })
 		}
+		// Only include flex lanes for drums (YARG only puts tremolo/trill in DrumsChartSpecialPhraseNumberToProcessFnMap).
+		// For MIDI: YARG distributes flex lanes to expert (always) and hard (velocity 41-50) only.
+		// Our old parser uses different velocity ranges but the trackData already has the filtered result.
 		for (const fl of td.flexLanes) {
 			phrases.push({ tick: fl.tick, length: fl.length, type: fl.isDouble ? phraseTypes.trillLane : phraseTypes.tremoloLane })
 		}
@@ -1269,17 +1272,18 @@ function fixLegacyGhStarPower(
 }
 
 function fixFlexLaneLds(events: { [key in Difficulty]: MidiTrackEvent[] }) {
+	// YARG distributes flex lanes per difficulty: Expert=all, Hard=velocity[41,50], Medium/Easy=none
 	_.remove(
 		events['easy'],
-		e => (e.type === eventTypes.flexLaneSingle || e.type === eventTypes.flexLaneDouble) && (e.velocity < 21 || e.velocity > 30),
+		e => e.type === eventTypes.flexLaneSingle || e.type === eventTypes.flexLaneDouble,
 	)
 	_.remove(
 		events['medium'],
-		e => (e.type === eventTypes.flexLaneSingle || e.type === eventTypes.flexLaneDouble) && (e.velocity < 21 || e.velocity > 40),
+		e => e.type === eventTypes.flexLaneSingle || e.type === eventTypes.flexLaneDouble,
 	)
 	_.remove(
 		events['hard'],
-		e => (e.type === eventTypes.flexLaneSingle || e.type === eventTypes.flexLaneDouble) && (e.velocity < 21 || e.velocity > 50),
+		e => (e.type === eventTypes.flexLaneSingle || e.type === eventTypes.flexLaneDouble) && (e.velocity < 41 || e.velocity > 50),
 	)
 
 	return events

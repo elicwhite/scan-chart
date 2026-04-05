@@ -398,8 +398,10 @@ function trackDataToMoonTracks(
 			textEvents.push(...deduped)
 		}
 
-		// Sort notes and merge duplicates at same tick+rawNote (e.g., kick + kick2x → single kick with doubleKick flag)
-		notes.sort((a, b) => a.tick - b.tick || a.rawNote - b.rawNote)
+		// Sort notes and dedup at same tick+rawNote.
+		// For same tick+rawNote, sort by flags descending so kick2x (doubleKick=128) comes before
+		// regular kick (flags=0), matching MoonSong's insertion order (lower MIDI note first).
+		notes.sort((a, b) => a.tick - b.tick || a.rawNote - b.rawNote || b.flags - a.flags)
 		// Dedup notes at same tick+rawNote — MoonSong keeps the first insertion, discards duplicates
 		{
 			const merged: MoonNote[] = []

@@ -447,7 +447,7 @@ export function parseNotesFromChart(data: Uint8Array): RawChartData {
 			.compact()
 			.map(([, stringTick, stringName]) => ({
 				tick: Number(stringTick),
-				name: (hadBracket ? stringName.replace(/\]$/, '') : stringName).trim(),
+				name: stringName.replace(/\]$/, '').trim(),
 			}))
 			.value(),
 		endEvents: _.chain(fileSections['Events'])

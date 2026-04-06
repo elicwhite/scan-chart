@@ -90,10 +90,12 @@ const moonTrackNameMap: Record<string, { instrument: MoonInstrument; difficulty?
 function trackDataToMoonTracks(
 	trackData: RawChartData['trackData'],
 	midiTracks: { trackName: string; trackEvents: MidiEvent[] }[],
+	modifierSustainsByKey: Record<string, { tick: number; length: number; type: EventType }[]>,
 ): MoonTrack[] {
 	const results: MoonTrack[] = []
 
 	for (const td of trackData) {
+		const modSustains = modifierSustainsByKey[`${td.instrument}:${td.difficulty}`] ?? []
 		const moonInst = td.instrument as MoonInstrument
 		const gm = getGameMode(moonInst)
 		const isDrums = gm === 'drums'
@@ -283,7 +285,7 @@ function trackDataToMoonTracks(
 			}
 
 			// XOR toggle cymbal from raw tom marker sustains (matches YARG)
-			const tomSustains = td.modifierSustains.filter(
+			const tomSustains = modSustains.filter(
 				m => m.type === eventTypes.yellowTomMarker ||
 					m.type === eventTypes.blueTomMarker ||
 					m.type === eventTypes.greenTomMarker,
@@ -407,11 +409,11 @@ function trackDataToMoonTracks(
 		// YARG applies forceHopo/forceStrum to ALL notes in [start, end).
 		// This pass corrects force conflicts by re-applying from sustain ranges,
 		// preserving per-tick flags that are already correct.
-		if (!isDrums && td.modifierSustains.length > 0) {
+		if (!isDrums && modSustains.length > 0) {
 			// Process sustains in order: last one at each note tick wins.
 			// YARG processes force modifiers when the note_off is encountered,
 			// so sort by end tick (tick + length) to match YARG's processing order.
-			const forceSustains = td.modifierSustains
+			const forceSustains = modSustains
 				.filter(m => m.type === eventTypes.forceStrum || m.type === eventTypes.forceHopo)
 				.sort((a, b) => (a.tick + a.length) - (b.tick + b.length))
 
@@ -571,6 +573,8 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 	// For duplicate track names (e.g. two PART DRUMS tracks), keep the LAST one.
 	// YARG/MoonSong overwrites when TrackOverrides allows it, which for standard
 	// instruments means the last track wins. Reverse before uniqBy to achieve this.
+	// Also build a side-channel for modifier sustains (removed from trackData type but needed for MoonTrack).
+	const modifierSustainsByKey: Record<string, { tick: number; length: number; type: EventType }[]> = {}
 	const computedTrackData = _.chain(tracks)
 		.filter(t => _.keys(instrumentNameMap).includes(t.trackName))
 		.reverse()
@@ -603,6 +607,9 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 				.value()
 
 			return difficulties.map(difficulty => {
+				// Store modifier sustains in side-channel for trackDataToMoonTracks
+				modifierSustainsByKey[`${instrument}:${difficulty}`] = modSustainsByDiff[difficulty] ?? []
+
 				const result: RawChartData['trackData'][number] = {
 					instrument,
 					difficulty,
@@ -611,7 +618,6 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 					soloSections: [],
 					flexLanes: [],
 					drumFreestyleSections: [],
-					modifierSustains: modSustainsByDiff[difficulty] ?? [],
 					trackEvents: [],
 				}
 
@@ -759,7 +765,7 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 			.value(),
 		trackData: computedTrackData,
 		// ── MoonSong-aligned fields (plan 0029) ──
-		tracks: trackDataToMoonTracks(computedTrackData, tracks),
+		tracks: trackDataToMoonTracks(computedTrackData, tracks, modifierSustainsByKey),
 		globalEvents: _.chain(tracks)
 			.find(t => t.trackName === 'EVENTS')
 			.get('trackEvents')
@@ -780,13 +786,6 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 		midiTrackOrder,
 		midiTempoTrack,
 		midiInstrumentTracks: Object.keys(midiInstrumentTracks).length > 0 ? midiInstrumentTracks : undefined,
-		unknownMidiTracks:
-			unknownTracks.length > 0
-				? unknownTracks.map(t => ({
-						name: t.name,
-						events: convertToDeltaTime(t.events),
-					}))
-				: undefined,
 	}
 }
 
@@ -960,7 +959,7 @@ function getTrackEventEnds(events: MidiEvent[], instrumentType: InstrumentType) 
 				: 'all'
 			if (difficulty === 'all') {
 				// Instrument-wide event (solo marker, star power, etc...) (applies to all difficulties)
-				const type = getInstrumentEventType(event.noteNumber)
+				const type = getInstrumentEventType(event.noteNumber, instrumentType)
 				if (type !== null) {
 					trackEventEnds[difficulty].push({
 						tick: event.deltaTime,
@@ -1026,7 +1025,7 @@ function getTrackEventEnds(events: MidiEvent[], instrumentType: InstrumentType) 
 }
 
 /** These apply to the entire instrument, not specific difficulties. */
-function getInstrumentEventType(note: number) {
+function getInstrumentEventType(note: number, instrumentType: InstrumentType) {
 	switch (note) {
 		case 103:
 			return eventTypes.soloSection

@@ -94,6 +94,9 @@ export function parseChartFile(data: Uint8Array, format: 'chart' | 'mid', partia
 					.value(),
 			}))
 			.value(),
+		// MoonSong-aligned fields (plan 0029)
+		tracks: rawChartData.tracks,
+		globalEvents: rawChartData.globalEvents,
 	}
 }
 

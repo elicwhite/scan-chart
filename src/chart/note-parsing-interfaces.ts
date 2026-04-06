@@ -1,5 +1,6 @@
 import { Difficulty, Instrument } from 'src/interfaces'
 import { ObjectValues } from 'src/utils'
+import type { MidiEvent } from 'midi-file'
 
 // ---------------------------------------------------------------------------
 // MoonSong-aligned types (plan 0029)
@@ -203,7 +204,17 @@ export interface RawChartData {
 	rawChartText?: string
 	/** Whether the source .chart file had a trailing newline after the last }. */
 	hasTrailingNewline?: boolean
-	metadata: ChartMetadata
+	metadata: {
+		name?: string
+		artist?: string
+		album?: string
+		genre?: string
+		year?: string
+		charter?: string
+		diff_guitar?: number
+		delay?: number
+		preview_start_time?: number
+	}
 	hasLyrics: boolean
 	hasVocals: boolean
 	lyrics: {

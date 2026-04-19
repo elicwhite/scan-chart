@@ -369,22 +369,53 @@ type ParsedTrackLine = ParsedNoteEvent | ParsedTextEvent | ParsedVersusEvent
  *   TICK = N VALUE LENGTH    → note (with instrument-specific mapping)
  */
 function parseTrackLine(line: string, instrument: Instrument, difficulty: Difficulty): ParsedTrackLine | null {
-	// Most lines are N/S (notes). Try them first to short-circuit the common case.
-	const nsMatch = chartLineNS.exec(line)
-	if (nsMatch) {
-		const tick = Number(nsMatch[1])
-		const typeCode = nsMatch[2]
-		const value = nsMatch[3]
-		const length = Number(nsMatch[4]) || 0
-		if (typeCode === 'S') {
-			if (value === '0' || value === '1') {
-				return { kind: 'versus', tick, length, isPlayer2: value === '1' }
+	// Most lines are `TICK = N VAL [LEN]` or `TICK = S VAL [LEN]`. Parse manually to
+	// avoid regex overhead on the hot path. Falls back to regex for the E branch.
+	const eq = line.indexOf(' = ')
+	if (eq > 0 && eq + 4 < line.length) {
+		const typeCode = line.charCodeAt(eq + 3) // 'N'=78, 'S'=83, 'E'=69
+		if ((typeCode === 78 || typeCode === 83) && line.charCodeAt(eq + 4) === 32) {
+			// Parse tick (digits before ' = ')
+			let tick = 0
+			let ok = true
+			for (let i = 0; i < eq; i++) {
+				const c = line.charCodeAt(i)
+				if (c < 48 || c > 57) { ok = false; break }
+				tick = tick * 10 + (c - 48)
 			}
-			const type = getSEventType(value)
-			return type !== null ? { kind: 'note', tick, type, length } : null
+			if (ok) {
+				// Parse value word (chars after 'TYPE ' until space or end)
+				const valStart = eq + 5
+				let valEnd = valStart
+				while (valEnd < line.length) {
+					const c = line.charCodeAt(valEnd)
+					if (c === 32) break
+					valEnd++
+				}
+				const value = line.slice(valStart, valEnd)
+				// Parse optional length (digits after a space following value)
+				let length = 0
+				if (valEnd < line.length && line.charCodeAt(valEnd) === 32) {
+					let lengthOk = true
+					for (let i = valEnd + 1; i < line.length; i++) {
+						const c = line.charCodeAt(i)
+						if (c < 48 || c > 57) { lengthOk = false; break }
+						length = length * 10 + (c - 48)
+					}
+					if (!lengthOk) length = 0
+				}
+				if (typeCode === 83) { // 'S'
+					if (value === '0' || value === '1') {
+						return { kind: 'versus', tick, length, isPlayer2: value === '1' }
+					}
+					const type = getSEventType(value)
+					return type !== null ? { kind: 'note', tick, type, length } : null
+				}
+				// 'N'
+				const type = getNEventType(value, instrument)
+				return type !== null ? { kind: 'note', tick, type, length } : null
+			}
 		}
-		const type = getNEventType(value, instrument)
-		return type !== null ? { kind: 'note', tick, type, length } : null
 	}
 	// E events have quoted arbitrary text, so handle them separately from N/S.
 	const eMatch = chartLineEQuoted.exec(line) ?? chartLineEUnquoted.exec(line)

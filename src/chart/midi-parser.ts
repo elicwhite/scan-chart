@@ -777,22 +777,59 @@ function getDrumsNoteType(note: number, difficulty: Difficulty) {
  * Distributes all of these to each difficulty in the instrument.
  */
 function distributeInstrumentEvents(eventEnds: { [difficulty in Difficulty | 'all']: TrackEventEnd[] }) {
-	// Share instrument-wide event references across difficulties — downstream
-	// (getTrackEvents) only reads TrackEventEnd fields, never mutates them.
+	// Both `eventEnds.all` and `eventEnds[difficulty]` are already tick-ascending
+	// (pushed in MIDI iteration order). Merge-walk them in O(n) and then only
+	// sort each same-tick cluster (usually 1-3 elements) by (type desc).
 	const all = eventEnds.all
-	if (all.length > 0) {
-		for (const difficulty of difficulties) {
-			const diffArr = eventEnds[difficulty]
-			if (diffArr.length === 0) continue
-			for (const instrumentEvent of all) diffArr.push(instrumentEvent)
-		}
-	}
-
 	return {
-		expert: eventEnds.expert.sort(compareTickAscTypeDesc),
-		hard: eventEnds.hard.sort(compareTickAscTypeDesc),
-		medium: eventEnds.medium.sort(compareTickAscTypeDesc),
-		easy: eventEnds.easy.sort(compareTickAscTypeDesc),
+		expert: mergeAndResolveSameTick(eventEnds.expert, all),
+		hard: mergeAndResolveSameTick(eventEnds.hard, all),
+		medium: mergeAndResolveSameTick(eventEnds.medium, all),
+		easy: mergeAndResolveSameTick(eventEnds.easy, all),
+	}
+}
+
+function mergeAndResolveSameTick(diffArr: TrackEventEnd[], all: TrackEventEnd[]): TrackEventEnd[] {
+	if (diffArr.length === 0) return diffArr // skip uncharted difficulty
+	if (all.length === 0) {
+		resolveSameTickTypeDesc(diffArr)
+		return diffArr
+	}
+	// Merge two tick-sorted arrays. Stable: on tick ties, prefer diffArr first
+	// (matches original push order before the sort). Same-tick clusters are
+	// resolved by type-desc in a single post-pass.
+	const out: TrackEventEnd[] = new Array(diffArr.length + all.length)
+	let i = 0, j = 0, k = 0
+	while (i < diffArr.length && j < all.length) {
+		out[k++] = diffArr[i].tick <= all[j].tick ? diffArr[i++] : all[j++]
+	}
+	while (i < diffArr.length) out[k++] = diffArr[i++]
+	while (j < all.length) out[k++] = all[j++]
+	resolveSameTickTypeDesc(out)
+	return out
+}
+
+function resolveSameTickTypeDesc(arr: TrackEventEnd[]): void {
+	// Sort same-tick clusters by (type desc). Clusters are usually 1-3 items, so
+	// a per-cluster insertion sort is cheap and avoids the global O(n log n) sort.
+	let clusterStart = 0
+	for (let idx = 1; idx <= arr.length; idx++) {
+		if (idx === arr.length || arr[idx].tick !== arr[clusterStart].tick) {
+			const clusterLen = idx - clusterStart
+			if (clusterLen >= 2) {
+				// Insertion sort by type desc, stable
+				for (let m = clusterStart + 1; m < idx; m++) {
+					const cur = arr[m]
+					let n = m - 1
+					while (n >= clusterStart && arr[n].type < cur.type) {
+						arr[n + 1] = arr[n]
+						n--
+					}
+					arr[n + 1] = cur
+				}
+			}
+			clusterStart = idx
+		}
 	}
 }
 

@@ -196,8 +196,8 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 		chartTicksPerBeat: midiFile.header.ticksPerBeat,
 		metadata: {}, // .mid does not have a mechanism for storing song metadata
 		vocalTracks,
-		tempos: extractTempos(midiFile.tracks[0]),
-		timeSignatures: extractTimeSignatures(midiFile.tracks[0]),
+		// tempos and timeSignatures are both pulled from the conductor track — fuse the scans.
+		...extractConductorData(midiFile.tracks[0]),
 		sections: eventsScan.sections,
 		endEvents: eventsScan.endEvents,
 		unrecognizedEvents: eventsScan.unrecognizedEvents,
@@ -281,6 +281,47 @@ function buildMidiTrackData(
 	}
 
 	return out
+}
+
+function extractConductorData(conductorTrack: MidiEvent[]): {
+	tempos: { tick: number; beatsPerMinute: number }[],
+	timeSignatures: { tick: number; numerator: number; denominator: number }[],
+} {
+	const tempos: { tick: number; beatsPerMinute: number }[] = []
+	const timeSignatures: { tick: number; numerator: number; denominator: number }[] = []
+	for (const e of conductorTrack) {
+		if (e.type === 'setTempo') {
+			tempos.push({
+				tick: e.deltaTime,
+				beatsPerMinute: 60000000 / (e as MidiSetTempoEvent).microsecondsPerBeat,
+			})
+		} else if (e.type === 'timeSignature') {
+			const ts = e as MidiTimeSignatureEvent
+			timeSignatures.push({ tick: e.deltaTime, numerator: ts.numerator, denominator: ts.denominator })
+		}
+	}
+	for (const tempo of tempos) {
+		if (tempo.beatsPerMinute === 0) {
+			throw `Invalid .mid file: Tempo at tick ${tempo.tick} was zero.`
+		}
+	}
+	for (const ts of timeSignatures) {
+		if (ts.numerator === 0) {
+			throw `Invalid .mid file: Time signature numerator at tick ${ts.tick} was zero.`
+		}
+	}
+	for (const ts of timeSignatures) {
+		if (ts.denominator === 0) {
+			throw `Invalid .mid file: Time signature denominator at tick ${ts.tick} was zero.`
+		}
+	}
+	if (!tempos[0] || tempos[0].tick !== 0) {
+		tempos.unshift({ tick: 0, beatsPerMinute: 120 })
+	}
+	if (!timeSignatures[0] || timeSignatures[0].tick !== 0) {
+		timeSignatures.unshift({ tick: 0, numerator: 4, denominator: 4 })
+	}
+	return { tempos, timeSignatures }
 }
 
 function extractTempos(conductorTrack: MidiEvent[]): { tick: number; beatsPerMinute: number }[] {

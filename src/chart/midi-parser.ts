@@ -723,18 +723,14 @@ function getDrumsNoteType(note: number, difficulty: Difficulty) {
  * Distributes all of these to each difficulty in the instrument.
  */
 function distributeInstrumentEvents(eventEnds: { [difficulty in Difficulty | 'all']: TrackEventEnd[] }) {
-	for (const instrumentEvent of eventEnds.all) {
+	// Share instrument-wide event references across difficulties — downstream
+	// (getTrackEvents) only reads TrackEventEnd fields, never mutates them.
+	const all = eventEnds.all
+	if (all.length > 0) {
 		for (const difficulty of difficulties) {
-			if (eventEnds[difficulty].length === 0) {
-				continue // Skip adding modifiers to uncharted difficulties
-			}
-			eventEnds[difficulty].push({
-				tick: instrumentEvent.tick,
-				type: instrumentEvent.type,
-				velocity: instrumentEvent.velocity,
-				channel: instrumentEvent.channel,
-				isStart: instrumentEvent.isStart,
-			})
+			const diffArr = eventEnds[difficulty]
+			if (diffArr.length === 0) continue
+			for (const instrumentEvent of all) diffArr.push(instrumentEvent)
 		}
 	}
 

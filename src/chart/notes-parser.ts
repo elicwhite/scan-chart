@@ -1101,11 +1101,12 @@ function sortAndFixInvalidNoteOverlaps(noteGroups: UntimedNoteEvent[][]) {
 		noteGroup.length = w
 	}
 
-	const previousNotesOfType = new Map<NoteType, UntimedNoteEvent>()
+	// noteTypes are dense small integers (1-17). Array index is faster than Map lookup.
+	const previousNotesOfType: (UntimedNoteEvent | undefined)[] = new Array(18)
 	for (const noteGroup of noteGroups) {
 		for (const note of noteGroup) {
-			const previousNoteOfType = previousNotesOfType.get(note.type)
-			previousNotesOfType.set(note.type, note)
+			const previousNoteOfType = previousNotesOfType[note.type]
+			previousNotesOfType[note.type] = note
 			if (previousNoteOfType && previousNoteOfType.tick + previousNoteOfType.length > note.tick) {
 				note.length = Math.max(note.length, previousNoteOfType.length - (note.tick - previousNoteOfType.tick))
 				previousNoteOfType.length = note.tick - previousNoteOfType.tick

@@ -318,8 +318,10 @@ export function scanVocalTrack<T extends MidiLyricEvent>(trackEvents: T[]): Voca
 	const seenLyrics = new Set<string>()
 	const openNotes = new Map<number, number>() // noteNumber → open tick
 
+	let currentTick = 0
 	for (let i = 0; i < trackEvents.length; i++) {
 		const event = trackEvents[i]
+		currentTick += event.deltaTime
 
 		// --- Note events ---
 		if (event.type === 'noteOn' || event.type === 'noteOff') {
@@ -328,6 +330,7 @@ export function scanVocalTrack<T extends MidiLyricEvent>(trackEvents: T[]): Voca
 			const vocalType = noteNumberToVocalType(n)
 			const isRelevantNote = n === 0 || n === 1 || n === 105 || n === 106 || n === 116 || vocalType !== null
 			if (!isRelevantNote) {
+				event.deltaTime = currentTick
 				unrecognizedMidiEvents.push(event)
 				continue
 			}
@@ -335,12 +338,12 @@ export function scanVocalTrack<T extends MidiLyricEvent>(trackEvents: T[]): Voca
 			const isOff = event.type === 'noteOff' || (event.type === 'noteOn' && event.velocity === 0)
 			if (!isOff) {
 				// YARG ignores duplicate noteOns — if already open, skip.
-				if (!openNotes.has(n)) openNotes.set(n, event.deltaTime)
+				if (!openNotes.has(n)) openNotes.set(n, currentTick)
 			} else {
 				const startTick = openNotes.get(n)
 				if (startTick === undefined) continue
 				openNotes.delete(n)
-				const length = event.deltaTime - startTick
+				const length = currentTick - startTick
 				switch (n) {
 					case 0:   rangeShifts.push({ tick: startTick, length }); break
 					case 1:   lyricShifts.push({ tick: startTick, length }); break
@@ -365,6 +368,7 @@ export function scanVocalTrack<T extends MidiLyricEvent>(trackEvents: T[]): Voca
 		const isTextLike = event.type === 'lyrics' || event.type === 'text' ||
 			event.type === 'marker' || event.type === 'cuePoint'
 		if (!isTextLike) {
+			event.deltaTime = currentTick
 			unrecognizedMidiEvents.push(event)
 			continue
 		}
@@ -384,16 +388,16 @@ export function scanVocalTrack<T extends MidiLyricEvent>(trackEvents: T[]): Voca
 		// markers are never lyrics; unknown bracketed text is also kept as a
 		// textEvent (YARG emits it via both the lyric and MoonText paths).
 		if (isBracketed) {
-			textEvents.push({ tick: event.deltaTime, text })
+			textEvents.push({ tick: currentTick, text })
 		}
 
 		const isKnownControlEvent = isBracketed && knownVocalControlEvents.has(trimmed.slice(1, -1))
 		if (isKnownControlEvent) continue
 
-		const key = `${event.deltaTime}:${text}`
+		const key = `${currentTick}:${text}`
 		if (seenLyrics.has(key)) continue
 		seenLyrics.add(key)
-		lyrics.push({ tick: event.deltaTime, length: 0, text })
+		lyrics.push({ tick: currentTick, length: 0, text })
 	}
 
 	// Only `notes` can have overlapping pitches emitting out of start-tick order.

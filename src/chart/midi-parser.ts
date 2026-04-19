@@ -119,10 +119,12 @@ export function parseNotesFromMidi(data: Uint8Array, iniChartModifiers: IniChart
 		throw 'Invalid .mid file: no tracks detected'
 	}
 
-	// Sets event.deltaTime to the number of ticks since the start of the track
-	convertToAbsoluteTime(midiFile)
-
+	// Each scanner below accumulates absolute tick inline (no separate
+	// pre-pass over every event). Unrecognized tracks retain raw MidiEvents
+	// that are exposed to round-trip consumers, so we convert those
+	// individually after classification.
 	const { tracks, unrecognizedMidiTracks } = getTracks(midiFile)
+	for (const ut of unrecognizedMidiTracks) convertTrackToAbsoluteTime(ut.events)
 	const parseIssues: RawChartData['parseIssues'] = []
 
 	// Build vocalTracks from PART VOCALS and HARM1/HARM2/HARM3.
@@ -289,15 +291,17 @@ function extractConductorData(conductorTrack: MidiEvent[]): {
 } {
 	const tempos: { tick: number; beatsPerMinute: number }[] = []
 	const timeSignatures: { tick: number; numerator: number; denominator: number }[] = []
+	let currentTick = 0
 	for (const e of conductorTrack) {
+		currentTick += e.deltaTime
 		if (e.type === 'setTempo') {
 			tempos.push({
-				tick: e.deltaTime,
+				tick: currentTick,
 				beatsPerMinute: 60000000 / (e as MidiSetTempoEvent).microsecondsPerBeat,
 			})
 		} else if (e.type === 'timeSignature') {
 			const ts = e as MidiTimeSignatureEvent
-			timeSignatures.push({ tick: e.deltaTime, numerator: ts.numerator, denominator: ts.denominator })
+			timeSignatures.push({ tick: currentTick, numerator: ts.numerator, denominator: ts.denominator })
 		}
 	}
 	for (const tempo of tempos) {
@@ -368,12 +372,14 @@ function extractTimeSignatures(conductorTrack: MidiEvent[]): { tick: number; num
 }
 
 function convertToAbsoluteTime(midiData: MidiData) {
-	for (const track of midiData.tracks) {
-		let currentTick = 0
-		for (const event of track) {
-			currentTick += event.deltaTime
-			event.deltaTime = currentTick
-		}
+	for (const track of midiData.tracks) convertTrackToAbsoluteTime(track)
+}
+
+function convertTrackToAbsoluteTime(track: MidiEvent[]) {
+	let currentTick = 0
+	for (const event of track) {
+		currentTick += event.deltaTime
+		event.deltaTime = currentTick
 	}
 }
 
@@ -482,7 +488,9 @@ function scanInstrumentTrack(
 	// Events the typed parser doesn't consume — preserved verbatim for round-trip.
 	const unrecognizedEvents: MidiEvent[] = []
 
+	let currentTick = 0
 	for (const event of events) {
+		currentTick += event.deltaTime
 		// SysEx event (tap modifier or open)
 		if (event.type === 'sysEx' || event.type === 'endSysEx') {
 			// Phase Shift SysEx event header: 50 53 00 00 <diff> <type> <isStart>
@@ -506,13 +514,14 @@ function scanInstrumentTrack(
 					: d === 2 ? eeHard
 					: eeExpert
 				arr.push({
-					tick: event.deltaTime,
+					tick: currentTick,
 					type,
 					channel: 1,
 					velocity: 127,
 					isStart: event.data[6] === 0x01,
 				})
 			} else {
+				event.deltaTime = currentTick
 				unrecognizedEvents.push(event)
 			}
 		} else if (event.type === 'noteOn' || event.type === 'noteOff') {
@@ -524,18 +533,18 @@ function scanInstrumentTrack(
 			// with any note-shaped events, so we don't fall through.
 			if (nn === 105) {
 				if (!isOff) {
-					if (versusStart105 === -1) versusStart105 = event.deltaTime
+					if (versusStart105 === -1) versusStart105 = currentTick
 				} else if (versusStart105 !== -1) {
-					versusPhrases.push({ tick: versusStart105, length: event.deltaTime - versusStart105, isPlayer2: false })
+					versusPhrases.push({ tick: versusStart105, length: currentTick - versusStart105, isPlayer2: false })
 					versusStart105 = -1
 				}
 				continue
 			}
 			if (nn === 106) {
 				if (!isOff) {
-					if (versusStart106 === -1) versusStart106 = event.deltaTime
+					if (versusStart106 === -1) versusStart106 = currentTick
 				} else if (versusStart106 !== -1) {
-					versusPhrases.push({ tick: versusStart106, length: event.deltaTime - versusStart106, isPlayer2: true })
+					versusPhrases.push({ tick: versusStart106, length: currentTick - versusStart106, isPlayer2: true })
 					versusStart106 = -1
 				}
 				continue
@@ -547,12 +556,12 @@ function scanInstrumentTrack(
 			if (nn >= animMin && nn <= animMax) {
 				if (!isOff) {
 					if (!animStarts.has(nn)) {
-						animStarts.set(nn, event.deltaTime)
+						animStarts.set(nn, currentTick)
 					}
 				} else {
 					const startTick = animStarts.get(nn)
 					if (startTick !== undefined) {
-						animations.push({ tick: startTick, length: event.deltaTime - startTick, noteNumber: nn })
+						animations.push({ tick: startTick, length: currentTick - startTick, noteNumber: nn })
 						animStarts.delete(nn)
 					}
 				}
@@ -571,7 +580,7 @@ function scanInstrumentTrack(
 				const type = getInstrumentEventType(nn)
 				if (type !== null) {
 					diffArr.push({
-						tick: event.deltaTime,
+						tick: currentTick,
 						type,
 						velocity: event.velocity,
 						channel: event.channel,
@@ -587,7 +596,7 @@ function scanInstrumentTrack(
 					: null
 				if (type !== null) {
 					diffArr.push({
-						tick: event.deltaTime,
+						tick: currentTick,
 						type,
 						velocity: event.velocity,
 						channel: event.channel,
@@ -597,7 +606,10 @@ function scanInstrumentTrack(
 				}
 			}
 
-			if (!consumed) unrecognizedEvents.push(event)
+			if (!consumed) {
+				event.deltaTime = currentTick
+				unrecognizedEvents.push(event)
+			}
 		} else if (event.type === 'text') {
 			let consumedAsNote = false
 			if (instrumentType === instrumentTypes.drums) {
@@ -612,8 +624,8 @@ function scanInstrumentTrack(
 						: null
 					if (eventType) {
 						// Treat this like the other events that have a start and end, so it can be processed the same way later
-						eventEnds[difficulty].push({ tick: event.deltaTime, type: eventType, velocity: 127, channel: 1, isStart: true })
-						eventEnds[difficulty].push({ tick: event.deltaTime, type: eventType, velocity: 127, channel: 1, isStart: false })
+						eventEnds[difficulty].push({ tick: currentTick, type: eventType, velocity: 127, channel: 1, isStart: true })
+						eventEnds[difficulty].push({ tick: currentTick, type: eventType, velocity: 127, channel: 1, isStart: false })
 						consumedAsNote = true
 					}
 				}
@@ -624,15 +636,15 @@ function scanInstrumentTrack(
 				consumedAsNote = true
 			} else if (event.text === 'ENABLE_CHART_DYNAMICS' || event.text === '[ENABLE_CHART_DYNAMICS]') {
 				// Treat this like the other events that have a start and end, so it can be processed the same way later
-				eventEnds['all'].push({ tick: event.deltaTime, type: eventTypes.enableChartDynamics, channel: 1, isStart: true, velocity: 127 })
-				eventEnds['all'].push({ tick: event.deltaTime, type: eventTypes.enableChartDynamics, channel: 1, isStart: false, velocity: 127 })
+				eventEnds['all'].push({ tick: currentTick, type: eventTypes.enableChartDynamics, channel: 1, isStart: true, velocity: 127 })
+				eventEnds['all'].push({ tick: currentTick, type: eventTypes.enableChartDynamics, channel: 1, isStart: false, velocity: 127 })
 				consumedAsNote = true
 			}
 
 			if (!consumedAsNote) {
 				// Skip tick-0 text events that duplicate the track name
-				if (event.deltaTime === 0 && event.text === trackName) continue
-				textEvents.push({ tick: event.deltaTime, text: event.text })
+				if (currentTick === 0 && event.text === trackName) continue
+				textEvents.push({ tick: currentTick, text: event.text })
 			}
 		} else if (event.type === 'trackName' || event.type === 'endOfTrack') {
 			// Trackname is the track identifier; endOfTrack is the MIDI marker.
@@ -641,6 +653,7 @@ function scanInstrumentTrack(
 		} else {
 			// Any other event type (marker, lyrics, instrumentName, channel, etc.)
 			// is preserved verbatim so writers can round-trip it.
+			event.deltaTime = currentTick
 			unrecognizedEvents.push(event)
 		}
 	}
@@ -1070,10 +1083,12 @@ function scanEventsTrack(tracks: { trackName: TrackName; trackEvents: MidiEvent[
 	const eventsTrack = tracks.find(t => t.trackName === 'EVENTS')
 	if (!eventsTrack) return result
 
+	let currentTick = 0
 	for (const event of eventsTrack.trackEvents) {
+		currentTick += event.deltaTime
 		if (!isTextLikeEvent(event)) continue
 		const text = event.text
-		const tick = event.deltaTime
+		const tick = currentTick
 
 		// Accept either `[section NAME]` (bracketed form — outer brackets are
 		// stripped) or `section NAME` (plain form — everything after the prefix

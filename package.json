@@ -1,6 +1,6 @@
 {
-	"name": "scan-chart",
-	"version": "8.0.1",
+	"name": "@eliwhite/scan-chart",
+	"version": "8.1.0-eliwhite.7",
 	"author": "Geo",
 	"license": "MIT",
 	"main": "dist/index.js",
@@ -13,17 +13,16 @@
 		"test": "npx vitest run",
 		"test:watch": "npx vitest",
 		"test:cli": "npx tsx src/test.ts",
-		"lint": "tsc",
-		"postinstall": "patch-package"
+		"lint": "tsc"
 	},
 	"repository": {
 		"type": "git",
-		"url": "git+ssh://git@github.com/Geomitron/scan-chart.git"
+		"url": "git+ssh://git@github.com/elicwhite/scan-chart.git"
 	},
 	"bugs": {
-		"url": "https://github.com/Geomitron/scan-chart/issues"
+		"url": "https://github.com/elicwhite/scan-chart/issues"
 	},
-	"homepage": "https://github.com/Geomitron/scan-chart#readme",
+	"homepage": "https://github.com/elicwhite/scan-chart#readme",
 	"dependencies": {
 		"@awasm/noble": "^0.1.1",
 		"@geomitron/midi-file": "^1.2.5",
